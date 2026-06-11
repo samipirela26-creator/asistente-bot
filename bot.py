@@ -93,6 +93,36 @@ def dueno_de(emisor, cfg):
     return db.DUENO_PRINCIPAL if str(emisor) in chat_ids_permitidos(cfg) else str(emisor)
 
 
+# --- Rate-limit por usuario -------------------------------------------------
+# El bot está ABIERTO (sin lista blanca), así que un usuario o un script podría
+# inundarlo de mensajes y gastar cuota de IA o tumbar el servicio. Limitamos por
+# chat_id con una ventana deslizante en memoria (stdlib, sin dependencias).
+RL_VENTANA = 60        # segundos de la ventana
+RL_MAXIMO = 15         # mensajes permitidos por usuario en esa ventana
+_rl_marcas = {}        # chat_id -> lista de timestamps recientes
+_rl_avisado = {}       # chat_id -> ts del último aviso "vas muy rápido"
+_rl_lock = threading.Lock()
+
+
+def permitido(emisor):
+    """True si el usuario puede procesar otro mensaje ahora.
+    Devuelve (ok, avisar): 'avisar' es True solo la primera vez que se pasa en
+    una ventana, para mandarle UN aviso y no spamear de vuelta."""
+    ahora = time.time()
+    emisor = str(emisor)
+    with _rl_lock:
+        marcas = [t for t in _rl_marcas.get(emisor, ()) if ahora - t < RL_VENTANA]
+        if len(marcas) >= RL_MAXIMO:
+            _rl_marcas[emisor] = marcas  # purga las viejas
+            avisar = (ahora - _rl_avisado.get(emisor, 0)) > RL_VENTANA
+            if avisar:
+                _rl_avisado[emisor] = ahora
+            return False, avisar
+        marcas.append(ahora)
+        _rl_marcas[emisor] = marcas
+        return True, False
+
+
 def destinos_de(dueno, cfg):
     """A qué chats hay que enviarle algo a un dueño (ej. sus recordatorios).
     'principal' -> todas tus cuentas; otro usuario -> solo su chat."""
@@ -978,6 +1008,9 @@ def main():
                 cb = upd.get("callback_query")
                 if cb:
                     emisor = str(cb["message"]["chat"]["id"])
+                    ok, _ = permitido(emisor)
+                    if not ok:
+                        continue  # botones: descarta sin avisar (silencioso)
                     db.set_dueno(dueno_de(emisor, cfg))  # datos del usuario correcto
                     manejar_boton(cb, cfg, token, emisor)
                     DESPERTAR.set()
@@ -988,9 +1021,20 @@ def main():
                     continue
                 emisor = str(msg["chat"]["id"])
                 dueno = dueno_de(emisor, cfg)
-                db.set_dueno(dueno)  # aisla los datos de cada usuario
 
                 if "text" in msg:
+                    ok, avisar = permitido(emisor)
+                    if not ok:
+                        if avisar:
+                            try:
+                                A.enviar_mensaje(
+                                    "⏳ Vas muy rápido. Espera un momento y "
+                                    "vuelve a intentarlo.", token, emisor)
+                            except Exception:
+                                pass
+                        log.warning("Rate-limit: descarto mensaje de %s", emisor)
+                        continue
+                    db.set_dueno(dueno)  # aisla los datos de cada usuario
                     if dueno == db.DUENO_PRINCIPAL:
                         db.estado_set("ultima_actividad", time.time())
                     manejar_mensaje(msg["text"], cfg, token, emisor)
