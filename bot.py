@@ -999,6 +999,9 @@ def main():
             with urllib.request.urlopen(url, timeout=60) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             espera_error = 3  # ciclo exitoso: reinicia el backoff
+            # Latido: prueba de que el bot está vivo y hablando con Telegram.
+            # Un chequeador externo (chequear_salud.py) avisa si se queda viejo.
+            db.estado_set("latido", time.time())
 
             for upd in data.get("result", []):
                 offset = upd["update_id"] + 1
