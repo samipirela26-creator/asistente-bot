@@ -45,8 +45,34 @@ def cargar_json(ruta, por_defecto):
         return json.load(f)
 
 
+# Secretos que se pueden dar por variable de entorno (tienen prioridad sobre
+# config.json). Asi rotar/cambiar un token manana es trivial y sin tocar el
+# archivo: basta exportar AGENDA_TOKEN=... antes de arrancar el bot.
+_CLAVES_SECRETAS = (
+    "token", "gemini_api_key", "groq_api_key", "openrouter_api_key",
+    "mistral_api_key", "zhipu_api_key", "xai_api_key",
+)
+
+
+def _proteger_config():
+    """Asegura permisos 600 en config.json (solo el dueno lo lee/escribe).
+    Silencioso: si no existe o el FS no lo permite (p.ej. clon de solo lectura),
+    no falla."""
+    try:
+        if os.path.exists(CONFIG_PATH):
+            os.chmod(CONFIG_PATH, 0o600)
+    except OSError:
+        pass
+
+
 def cargar_config():
     cfg = cargar_json(CONFIG_PATH, {})
+    _proteger_config()
+    # Las variables de entorno PISAN al config.json (cambio facil de tokens).
+    for clave in _CLAVES_SECRETAS:
+        env = os.environ.get("AGENDA_" + clave.upper(), "").strip()
+        if env:
+            cfg[clave] = env
     token = cfg.get("token", "").strip()
     chat_id = str(cfg.get("chat_id", "")).strip()
     return cfg, token, chat_id
