@@ -726,8 +726,10 @@ def sugerencia_proactiva(token, chat_ids):
 def vigilar_recordatorios(token, cfg, parar):
     """Envia los recordatorios vencidos (de CUALQUIER usuario, cada uno a su
     chat) y duerme justo hasta el proximo. Si llega un mensaje, se reevalua."""
-    # Este hilo trabaja por defecto sobre el dueño principal (respaldo,
-    # sugerencias). Para los recordatorios usa el dueño de cada fila.
+    # Este hilo SIEMPRE trabaja como dueño principal (respaldo, sugerencias,
+    # salud); para cada recordatorio elige el chat por el dueño de la fila. Es
+    # un default fijo de por vida del hilo, no el patrón frágil de ir cambiando
+    # de dueño entre mensajes (eso ahora va con db.como_dueno() en el bucle).
     db.set_dueno(db.DUENO_PRINCIPAL)
     chat_ids = chat_ids_permitidos(cfg)
     while not parar.is_set():
@@ -1014,8 +1016,9 @@ def main():
                     ok, _ = permitido(emisor)
                     if not ok:
                         continue  # botones: descarta sin avisar (silencioso)
-                    db.set_dueno(dueno_de(emisor, cfg))  # datos del usuario correcto
-                    manejar_boton(cb, cfg, token, emisor)
+                    # Dueno explicito y acotado a este mensaje (se restaura solo).
+                    with db.como_dueno(dueno_de(emisor, cfg)):
+                        manejar_boton(cb, cfg, token, emisor)
                     DESPERTAR.set()
                     continue
 
@@ -1037,10 +1040,11 @@ def main():
                                 pass
                         log.warning("Rate-limit: descarto mensaje de %s", emisor)
                         continue
-                    db.set_dueno(dueno)  # aisla los datos de cada usuario
-                    if dueno == db.DUENO_PRINCIPAL:
-                        db.estado_set("ultima_actividad", time.time())
-                    manejar_mensaje(msg["text"], cfg, token, emisor)
+                    # Dueno explicito y acotado a este mensaje (se restaura solo).
+                    with db.como_dueno(dueno):  # aisla los datos de cada usuario
+                        if dueno == db.DUENO_PRINCIPAL:
+                            db.estado_set("ultima_actividad", time.time())
+                        manejar_mensaje(msg["text"], cfg, token, emisor)
                     DESPERTAR.set()  # por si el mensaje creo/borro recordatorios
 
         except KeyboardInterrupt:

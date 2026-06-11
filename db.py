@@ -29,9 +29,10 @@ _local = threading.local()
 
 
 def set_dueno(dueno):
-    """Fija el dueno 'actual' del hilo. Las funciones de datos lo usan por
-    defecto, asi el resto del codigo casi no cambia. Es thread-local: el bot
-    procesa mensajes de a uno, y el hilo de recordatorios tiene el suyo."""
+    """Fija un dueno por defecto FIJO para el hilo actual. Úsalo solo para hilos
+    que trabajan siempre como el mismo dueno (p.ej. el de recordatorios). Para
+    código que cambia de dueno entre mensajes usa 'with como_dueno(dueno):',
+    que lo hace explícito y lo restaura al salir (más seguro)."""
     _local.dueno = dueno or DUENO_PRINCIPAL
 
 
@@ -40,6 +41,30 @@ def _d(dueno=None):
     if dueno:
         return dueno
     return getattr(_local, "dueno", DUENO_PRINCIPAL)
+
+
+@contextlib.contextmanager
+def como_dueno(dueno):
+    """Fija el dueno SOLO dentro de este bloque y lo restaura al salir (incluso
+    si hay excepcion). Hace el dueno EXPLICITO en el sitio donde se procesa cada
+    mensaje, en vez de depender de un set_dueno suelto que quedaba pegado al hilo
+    indefinidamente. Uso:
+
+        with db.como_dueno(dueno):
+            manejar_mensaje(...)
+    """
+    previo = getattr(_local, "dueno", None)
+    _local.dueno = dueno or DUENO_PRINCIPAL
+    try:
+        yield
+    finally:
+        if previo is None:
+            try:
+                del _local.dueno
+            except AttributeError:
+                pass
+        else:
+            _local.dueno = previo
 
 
 @contextlib.contextmanager
