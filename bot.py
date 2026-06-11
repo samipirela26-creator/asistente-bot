@@ -45,14 +45,16 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "2.2"
+VERSION = "2.3"
 NOVEDADES = (
-    "🚀 <b>Bot actualizado · v2.2</b>\n\n"
-    "• 👥 <b>Multiusuario:</b> ahora cualquier persona puede usarme y cada quien "
-    "tiene su propia agenda, recordatorios y proyectos, totalmente aislados.\n"
-    "• 🔒 Tus datos de siempre siguen siendo solo tuyos (no se mezclan con nadie).\n"
-    "• ⏰ Cada quien recibe únicamente sus propios recordatorios.\n\n"
-    "Sigo avisándote aquí cada actualización. 💪"
+    "🚀 <b>Bot actualizado · v2.3</b>\n\n"
+    "• 🖥️ <b>Nuevo hogar:</b> ahora corro desde el Lenovo, encendido 24/7, "
+    "para estar siempre disponible.\n"
+    "• 🔄 <b>Auto-actualización:</b> cada cambio que se sube se instala solo, "
+    "sin que tengas que hacer nada.\n"
+    "• 🩹 <b>Más estable:</b> arreglé una fuga de conexiones que tumbaba los "
+    "recordatorios; ahora puedo correr días sin fallar.\n\n"
+    "Tus datos llegaron completos. Sigo avisándote aquí cada actualización. 💪"
 )
 
 
