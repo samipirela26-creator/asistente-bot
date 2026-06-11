@@ -1,0 +1,7 @@
+[Unit]
+Description=Resumen nocturno del asistente
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/sanuel/Escritorio/SP/sistema-escolar/asistente
+ExecStart=/usr/bin/python3 /home/sanuel/Escritorio/SP/sistema-escolar/asistente/asistente.py noche

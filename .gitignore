@@ -1,0 +1,15 @@
+# Secretos y configuracion local (NUNCA subir al repo)
+config.json
+
+# Base de datos y sus archivos auxiliares de SQLite (WAL)
+agenda.db
+agenda.db-shm
+agenda.db-wal
+
+# Datos personales
+respaldos/
+tareas.json
+
+# Cache de Python
+__pycache__/
+*.pyc

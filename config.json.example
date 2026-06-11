@@ -1,0 +1,11 @@
+{
+  "token": "PEGA_AQUI_EL_TOKEN_DE_BOTFATHER",
+  "chat_id": "PEGA_AQUI_TU_CHAT_ID",
+  "chat_ids": ["PEGA_AQUI_CHAT_IDS_ADICIONALES_OPCIONAL"],
+  "gemini_api_key": "PEGA_AQUI_TU_API_KEY_DE_GEMINI",
+  "openrouter_api_key": "OPCIONAL_RESPALDO",
+  "groq_api_key": "OPCIONAL_RESPALDO",
+  "mistral_api_key": "OPCIONAL_RESPALDO",
+  "zhipu_api_key": "OPCIONAL_RESPALDO",
+  "xai_api_key": "OPCIONAL_RESPALDO"
+}
