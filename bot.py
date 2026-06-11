@@ -34,6 +34,7 @@ import asistente as A
 import db
 import fechas
 import busqueda
+import sistema
 
 try:
     import gemini_ia
@@ -44,13 +45,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "2.1"
+VERSION = "2.2"
 NOVEDADES = (
-    "🚀 <b>Bot actualizado · v2.1</b>\n\n"
-    "• ✅ Valido fecha y hora antes de agendar: si la IA se equivoca, ya no se guarda basura.\n"
-    "• 🌐 Aguanto mejor los cortes de internet (no me caigo por un timeout).\n"
-    "• 🔎 Búsqueda web más resistente si una fuente cambia su formato.\n"
-    "• 🧪 Añadí pruebas automáticas para no romper lo que ya funciona.\n\n"
+    "🚀 <b>Bot actualizado · v2.2</b>\n\n"
+    "• 👥 <b>Multiusuario:</b> ahora cualquier persona puede usarme y cada quien "
+    "tiene su propia agenda, recordatorios y proyectos, totalmente aislados.\n"
+    "• 🔒 Tus datos de siempre siguen siendo solo tuyos (no se mezclan con nadie).\n"
+    "• ⏰ Cada quien recibe únicamente sus propios recordatorios.\n\n"
     "Sigo avisándote aquí cada actualización. 💪"
 )
 
@@ -69,8 +70,9 @@ def notificar_actualizacion(token, chat_ids):
 
 
 def chat_ids_permitidos(cfg):
-    """Lista de cuentas (chat_id) que pueden usar el bot.
-    Acepta 'chat_ids' (lista) y/o el viejo 'chat_id' (uno solo)."""
+    """Cuentas personales del dueño (las del config). Comparten un mismo
+    espacio de datos: el dueño 'principal'. Acepta 'chat_ids' (lista) y/o
+    el viejo 'chat_id' (uno solo)."""
     ids = []
     for cid in cfg.get("chat_ids", []) or []:
         cid = str(cid).strip()
@@ -80,6 +82,21 @@ def chat_ids_permitidos(cfg):
     if uno and uno not in ids:
         ids.append(uno)
     return ids
+
+
+def dueno_de(emisor, cfg):
+    """A qué espacio de datos pertenece quien escribe.
+    Tus cuentas personales -> 'principal' (comparten tus datos de siempre).
+    Cualquier otro usuario -> su propio chat_id (datos aislados)."""
+    return db.DUENO_PRINCIPAL if str(emisor) in chat_ids_permitidos(cfg) else str(emisor)
+
+
+def destinos_de(dueno, cfg):
+    """A qué chats hay que enviarle algo a un dueño (ej. sus recordatorios).
+    'principal' -> todas tus cuentas; otro usuario -> solo su chat."""
+    if dueno == db.DUENO_PRINCIPAL:
+        return chat_ids_permitidos(cfg)
+    return [dueno]
 
 
 # ------------------------------------------------------------------ utilidades
@@ -295,6 +312,10 @@ def atajo(texto, tareas):
 
     if low in ("fases", "/fases", "mis fases", "todas las fases"):
         return texto_proyectos(completo=True), False
+
+    if low in ("estado", "/estado", "salud", "maquina") or \
+            re.search(r"(como|cómo)\s+esta\s+la\s+(lenovo|maquina|máquina|compu)", low):
+        return sistema.estado_texto(), False
 
     if low in ("recordatorios", "/recordatorios", "mis recordatorios"):
         rec = db.listar_recordatorios()
@@ -670,23 +691,39 @@ def sugerencia_proactiva(token, chat_ids):
     db.estado_set("ultima_sugerencia", ahora)
 
 
-def vigilar_recordatorios(token, chat_ids, parar):
-    """Envia los recordatorios vencidos y duerme justo hasta el proximo
-    (en vez de despertar cada 30s). Si llega un mensaje nuevo, se reevalua."""
+def vigilar_recordatorios(token, cfg, parar):
+    """Envia los recordatorios vencidos (de CUALQUIER usuario, cada uno a su
+    chat) y duerme justo hasta el proximo. Si llega un mensaje, se reevalua."""
+    # Este hilo trabaja por defecto sobre el dueño principal (respaldo,
+    # sugerencias). Para los recordatorios usa el dueño de cada fila.
+    db.set_dueno(db.DUENO_PRINCIPAL)
+    chat_ids = chat_ids_permitidos(cfg)
     while not parar.is_set():
         espera = 300  # tope: 5 min
         try:
             db.respaldo_diario()
-            for r in db.recordatorios_vencidos():
+            for r in db.recordatorios_vencidos():  # de todos los dueños
                 botones = [[
                     {"text": "✅ Hecho", "callback_data": f"rec_done:{r['id']}"},
                     {"text": "⏰ +30 min", "callback_data": f"rec_post:{r['id']}"},
                 ]]
-                for cid in chat_ids:
+                for cid in destinos_de(r.get("dueno") or db.DUENO_PRINCIPAL, cfg):
                     A.enviar_mensaje(f"⏰ <b>Recordatorio:</b> {esc(r['texto'])}",
                                      token, cid, botones=botones)
                 db.marcar_enviado(r)
             sugerencia_proactiva(token, chat_ids)
+            # Salud de la maquina: si algo esta critico, avisa (max 1 vez/hora)
+            try:
+                problemas = sistema.alertas()
+                ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
+                if problemas and time.time() - ult > 3600:
+                    msg = "⚠️ <b>Alerta de la maquina</b>\n" + "\n".join(
+                        f"  {p}" for p in problemas)
+                    for cid in chat_ids:
+                        A.enviar_mensaje(msg, token, cid)
+                    db.estado_set("ult_alerta_sistema", time.time())
+            except Exception as e:
+                log.warning("Error revisando salud de la maquina: %s", e)
             prox = db.proximo_recordatorio()
             if prox:
                 falta = (datetime.datetime.strptime(prox, "%Y-%m-%dT%H:%M")
@@ -906,7 +943,7 @@ def main():
     notificar_actualizacion(token, chat_ids)  # avisa por Telegram si hubo update
 
     parar = threading.Event()
-    hilo = threading.Thread(target=vigilar_recordatorios, args=(token, chat_ids, parar), daemon=True)
+    hilo = threading.Thread(target=vigilar_recordatorios, args=(token, cfg, parar), daemon=True)
     hilo.start()
 
     def apagar(*_):
@@ -939,20 +976,21 @@ def main():
                 cb = upd.get("callback_query")
                 if cb:
                     emisor = str(cb["message"]["chat"]["id"])
-                    if emisor in chat_ids:
-                        manejar_boton(cb, cfg, token, emisor)
-                        DESPERTAR.set()
+                    db.set_dueno(dueno_de(emisor, cfg))  # datos del usuario correcto
+                    manejar_boton(cb, cfg, token, emisor)
+                    DESPERTAR.set()
                     continue
 
                 msg = upd.get("message") or upd.get("edited_message")
                 if not msg:
                     continue
                 emisor = str(msg["chat"]["id"])
-                if emisor not in chat_ids:
-                    continue
+                dueno = dueno_de(emisor, cfg)
+                db.set_dueno(dueno)  # aisla los datos de cada usuario
 
                 if "text" in msg:
-                    db.estado_set("ultima_actividad", time.time())
+                    if dueno == db.DUENO_PRINCIPAL:
+                        db.estado_set("ultima_actividad", time.time())
                     manejar_mensaje(msg["text"], cfg, token, emisor)
                     DESPERTAR.set()  # por si el mensaje creo/borro recordatorios
 

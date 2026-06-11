@@ -13,10 +13,32 @@ import os
 import json
 import sqlite3
 import datetime
+import threading
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "agenda.db")
 JSON_VIEJO = os.path.join(BASE_DIR, "tareas.json")
+
+# --- Multiusuario: cada cuenta tiene sus propios datos aislados. ---
+# El "dueno" identifica de quien son los datos. Las cuentas personales del
+# config comparten el dueno DUENO_PRINCIPAL (asi heredan lo que ya existia);
+# cualquier otro usuario nuevo usa su propio chat_id como dueno.
+DUENO_PRINCIPAL = "principal"
+_local = threading.local()
+
+
+def set_dueno(dueno):
+    """Fija el dueno 'actual' del hilo. Las funciones de datos lo usan por
+    defecto, asi el resto del codigo casi no cambia. Es thread-local: el bot
+    procesa mensajes de a uno, y el hilo de recordatorios tiene el suyo."""
+    _local.dueno = dueno or DUENO_PRINCIPAL
+
+
+def _d(dueno=None):
+    """Dueno efectivo: el explicito, si no el del hilo, si no el principal."""
+    if dueno:
+        return dueno
+    return getattr(_local, "dueno", DUENO_PRINCIPAL)
 
 
 def conn():
@@ -34,25 +56,29 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS pendientes (
                 id     INTEGER PRIMARY KEY AUTOINCREMENT,
-                texto  TEXT NOT NULL
+                texto  TEXT NOT NULL,
+                dueno  TEXT
             );
             CREATE TABLE IF NOT EXISTS eventos (
                 id     INTEGER PRIMARY KEY AUTOINCREMENT,
                 fecha  TEXT NOT NULL,
                 hora   TEXT,
-                titulo TEXT NOT NULL
+                titulo TEXT NOT NULL,
+                dueno  TEXT
             );
             CREATE TABLE IF NOT EXISTS recordatorios (
                 id      INTEGER PRIMARY KEY AUTOINCREMENT,
                 cuando  TEXT NOT NULL,   -- ISO: 2026-06-09T15:30
                 texto   TEXT NOT NULL,
                 repetir TEXT,            -- NULL | 'diario' | 'semanal'
-                enviado INTEGER DEFAULT 0
+                enviado INTEGER DEFAULT 0,
+                dueno   TEXT
             );
             CREATE TABLE IF NOT EXISTS proyectos (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre      TEXT NOT NULL,
-                descripcion TEXT
+                descripcion TEXT,
+                dueno       TEXT
             );
             CREATE TABLE IF NOT EXISTS fases (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,17 +91,21 @@ def init_db():
             CREATE TABLE IF NOT EXISTS notas (
                 id    INTEGER PRIMARY KEY AUTOINCREMENT,
                 texto TEXT NOT NULL,
-                fecha TEXT NOT NULL       -- ISO
+                fecha TEXT NOT NULL,      -- ISO
+                dueno TEXT
             );
             CREATE TABLE IF NOT EXISTS lecturas (
-                nombre      TEXT PRIMARY KEY,  -- ej: 'biblia', 'libro pizzeria'
+                nombre      TEXT NOT NULL,     -- ej: 'biblia', 'libro pizzeria'
+                dueno       TEXT NOT NULL,
                 marcador    TEXT NOT NULL,     -- ej: 'Juan 5'
-                actualizado TEXT NOT NULL
+                actualizado TEXT NOT NULL,
+                PRIMARY KEY (nombre, dueno)
             );
             CREATE TABLE IF NOT EXISTS actividad (
                 fecha TEXT NOT NULL,      -- AAAA-MM-DD
                 tipo  TEXT NOT NULL,      -- 'fase' | 'pendiente'
-                texto TEXT
+                texto TEXT,
+                dueno TEXT
             );
             CREATE TABLE IF NOT EXISTS historial (
                 id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,11 +131,43 @@ def init_db():
         cols_f = [r[1] for r in c.execute("PRAGMA table_info(fases)")]
         if "minutos" not in cols_f:
             c.execute("ALTER TABLE fases ADD COLUMN minutos INTEGER")
+        # Migracion multiusuario: anadir columna 'dueno' a las tablas por-usuario
+        # y asignar los datos viejos al dueno principal (eran globales).
+        for tabla in ("pendientes", "eventos", "recordatorios", "proyectos",
+                      "notas", "actividad"):
+            cols_t = [r[1] for r in c.execute(f"PRAGMA table_info({tabla})")]
+            if "dueno" not in cols_t:
+                c.execute(f"ALTER TABLE {tabla} ADD COLUMN dueno TEXT")
+            c.execute(f"UPDATE {tabla} SET dueno=? WHERE dueno IS NULL",
+                      (DUENO_PRINCIPAL,))
+        # lecturas tenia 'nombre' como PK unica; ahora la clave es (nombre,dueno)
+        # para que dos personas puedan tener la misma lectura. Se reconstruye.
+        cols_l = [r[1] for r in c.execute("PRAGMA table_info(lecturas)")]
+        if "dueno" not in cols_l:
+            c.executescript(
+                """
+                CREATE TABLE lecturas_new (
+                    nombre      TEXT NOT NULL,
+                    dueno       TEXT NOT NULL,
+                    marcador    TEXT NOT NULL,
+                    actualizado TEXT NOT NULL,
+                    PRIMARY KEY (nombre, dueno)
+                );
+                INSERT INTO lecturas_new (nombre, dueno, marcador, actualizado)
+                    SELECT nombre, 'principal', marcador, actualizado FROM lecturas;
+                DROP TABLE lecturas;
+                ALTER TABLE lecturas_new RENAME TO lecturas;
+                """
+            )
         # Indices para consultas frecuentes.
         c.execute("CREATE INDEX IF NOT EXISTS idx_rec_pend "
                   "ON recordatorios (enviado, cuando)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_fases_pend "
                   "ON fases (proyecto_id, hecho, orden)")
+    # Migracion: los intereses eran globales (clave 'intereses'); ahora son
+    # por dueno ('intereses:principal'). Se copian una sola vez.
+    if estado_get("intereses") is not None and estado_get(_clave_intereses()) is None:
+        estado_set(_clave_intereses(), estado_get("intereses"))
     _migrar_json()
 
 
@@ -130,13 +192,15 @@ def _migrar_json():
 
 
 # ------------------------------------------------- pendientes y eventos (dict)
-def cargar_tareas():
-    """Devuelve {'pendientes':[...], 'eventos':[...]} como antes."""
+def cargar_tareas(dueno=None):
+    """Devuelve {'pendientes':[...], 'eventos':[...]} del dueno dado/actual."""
+    d = _d(dueno)
     with conn() as c:
         pend = [r["texto"] for r in c.execute(
-            "SELECT texto FROM pendientes ORDER BY id")]
+            "SELECT texto FROM pendientes WHERE dueno=? ORDER BY id", (d,))]
         ev = []
-        for r in c.execute("SELECT fecha, hora, titulo FROM eventos ORDER BY fecha, hora"):
+        for r in c.execute("SELECT fecha, hora, titulo FROM eventos "
+                           "WHERE dueno=? ORDER BY fecha, hora", (d,)):
             e = {"fecha": r["fecha"], "titulo": r["titulo"]}
             if r["hora"]:
                 e["hora"] = r["hora"]
@@ -144,27 +208,29 @@ def cargar_tareas():
     return {"pendientes": pend, "eventos": ev}
 
 
-def guardar_tareas(tareas):
-    """Reemplaza por completo pendientes y eventos con el diccionario dado."""
+def guardar_tareas(tareas, dueno=None):
+    """Reemplaza pendientes y eventos del dueno dado/actual."""
+    d = _d(dueno)
     with conn() as c:
-        c.execute("DELETE FROM pendientes")
-        c.execute("DELETE FROM eventos")
+        c.execute("DELETE FROM pendientes WHERE dueno=?", (d,))
+        c.execute("DELETE FROM eventos WHERE dueno=?", (d,))
         for p in tareas.get("pendientes", []):
-            c.execute("INSERT INTO pendientes (texto) VALUES (?)", (p,))
+            c.execute("INSERT INTO pendientes (texto, dueno) VALUES (?, ?)", (p, d))
         for e in tareas.get("eventos", []):
             c.execute(
-                "INSERT INTO eventos (fecha, hora, titulo) VALUES (?, ?, ?)",
-                (e.get("fecha", ""), e.get("hora"), e.get("titulo", "")),
+                "INSERT INTO eventos (fecha, hora, titulo, dueno) VALUES (?, ?, ?, ?)",
+                (e.get("fecha", ""), e.get("hora"), e.get("titulo", ""), d),
             )
 
 
 # --------------------------------------------------------------- recordatorios
-def add_recordatorio(cuando_iso, texto, repetir=None, insistir_min=None, grupo=None):
+def add_recordatorio(cuando_iso, texto, repetir=None, insistir_min=None,
+                     grupo=None, dueno=None):
     with conn() as c:
         c.execute(
-            "INSERT INTO recordatorios (cuando, texto, repetir, insistir_min, grupo) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (cuando_iso, texto, repetir, insistir_min, grupo),
+            "INSERT INTO recordatorios (cuando, texto, repetir, insistir_min, "
+            "grupo, dueno) VALUES (?, ?, ?, ?, ?, ?)",
+            (cuando_iso, texto, repetir, insistir_min, grupo, _d(dueno)),
         )
 
 
@@ -176,15 +242,16 @@ def _borrar_grupo(c, grupo):
     return n
 
 
-def listar_recordatorios():
+def listar_recordatorios(dueno=None):
     with conn() as c:
         return [dict(r) for r in c.execute(
-            "SELECT * FROM recordatorios WHERE enviado=0 ORDER BY cuando")]
+            "SELECT * FROM recordatorios WHERE enviado=0 AND dueno=? ORDER BY cuando",
+            (_d(dueno),))]
 
 
-def borrar_recordatorio(objetivo):
+def borrar_recordatorio(objetivo, dueno=None):
     """objetivo: numero (posicion en la lista) o texto a buscar."""
-    pendientes = listar_recordatorios()
+    pendientes = listar_recordatorios(dueno)
     objetivo = str(objetivo).strip()
     elegido = None
     if objetivo.isdigit():
@@ -206,22 +273,33 @@ def borrar_recordatorio(objetivo):
     return None
 
 
-def recordatorios_vencidos(ahora=None):
-    """Devuelve recordatorios cuya hora ya llego y no se han enviado."""
+def recordatorios_vencidos(ahora=None, dueno=None):
+    """Recordatorios vencidos de UN dueno (por defecto, todos los dueños).
+    El hilo de recordatorios usa dueno=None para barrer a todo el mundo y
+    enviar cada aviso a su destinatario (cada fila trae su 'dueno')."""
     if ahora is None:
         ahora = datetime.datetime.now()
     ahora_iso = ahora.strftime("%Y-%m-%dT%H:%M")
+    q = "SELECT * FROM recordatorios WHERE enviado=0 AND cuando<=?"
+    args = [ahora_iso]
+    if dueno is not None:
+        q += " AND dueno=?"
+        args.append(dueno)
+    q += " ORDER BY cuando"
     with conn() as c:
-        return [dict(r) for r in c.execute(
-            "SELECT * FROM recordatorios WHERE enviado=0 AND cuando<=? ORDER BY cuando",
-            (ahora_iso,))]
+        return [dict(r) for r in c.execute(q, args)]
 
 
-def proximo_recordatorio():
-    """ISO del recordatorio pendiente mas cercano, o None."""
+def proximo_recordatorio(dueno=None):
+    """ISO del recordatorio pendiente mas cercano (de un dueno o de todos)."""
+    q = "SELECT cuando FROM recordatorios WHERE enviado=0"
+    args = []
+    if dueno is not None:
+        q += " AND dueno=?"
+        args.append(dueno)
+    q += " ORDER BY cuando LIMIT 1"
     with conn() as c:
-        r = c.execute("SELECT cuando FROM recordatorios WHERE enviado=0 "
-                      "ORDER BY cuando LIMIT 1").fetchone()
+        r = c.execute(q, args).fetchone()
     return r["cuando"] if r else None
 
 
@@ -247,35 +325,43 @@ def marcar_enviado(recordatorio):
             delta = datetime.timedelta(days=1 if rep == "diario" else 7)
             siguiente = (base + delta).strftime("%Y-%m-%dT%H:%M")
             c.execute(
-                "INSERT INTO recordatorios (cuando, texto, repetir) VALUES (?, ?, ?)",
-                (siguiente, recordatorio["texto"], rep),
+                "INSERT INTO recordatorios (cuando, texto, repetir, dueno) "
+                "VALUES (?, ?, ?, ?)",
+                (siguiente, recordatorio["texto"], rep,
+                 recordatorio.get("dueno") or DUENO_PRINCIPAL),
             )
 
 
 # ----------------------------------------------------------- proyectos y fases
-def add_proyecto(nombre, descripcion=""):
+def add_proyecto(nombre, descripcion="", dueno=None):
     with conn() as c:
-        cur = c.execute("INSERT INTO proyectos (nombre, descripcion) VALUES (?, ?)",
-                        (nombre, descripcion))
+        cur = c.execute(
+            "INSERT INTO proyectos (nombre, descripcion, dueno) VALUES (?, ?, ?)",
+            (nombre, descripcion, _d(dueno)))
         return cur.lastrowid
 
 
-def _buscar_proyecto(c, nombre_o_id):
+def _buscar_proyecto(c, nombre_o_id, dueno=None):
+    """Busca un proyecto SIEMPRE dentro de los del dueno, para no mezclar
+    datos de distintos usuarios (ni por nombre ni por id)."""
+    d = _d(dueno)
     s = str(nombre_o_id).strip()
     if s.isdigit():
-        r = c.execute("SELECT * FROM proyectos WHERE id=?", (int(s),)).fetchone()
+        r = c.execute("SELECT * FROM proyectos WHERE id=? AND dueno=?",
+                      (int(s), d)).fetchone()
         if r:
             return r
-    return c.execute("SELECT * FROM proyectos WHERE LOWER(nombre) LIKE ?",
-                     (f"%{s.lower()}%",)).fetchone()
+    return c.execute("SELECT * FROM proyectos WHERE dueno=? AND LOWER(nombre) LIKE ?",
+                     (d, f"%{s.lower()}%")).fetchone()
 
 
-def add_fase(proyecto, titulo, contexto="", orden=None, minutos=None):
+def add_fase(proyecto, titulo, contexto="", orden=None, minutos=None, dueno=None):
+    d = _d(dueno)
     with conn() as c:
-        p = _buscar_proyecto(c, proyecto)
+        p = _buscar_proyecto(c, proyecto, d)
         if not p:
-            pid = c.execute("INSERT INTO proyectos (nombre) VALUES (?)",
-                            (str(proyecto),)).lastrowid
+            pid = c.execute("INSERT INTO proyectos (nombre, dueno) VALUES (?, ?)",
+                            (str(proyecto), d)).lastrowid
         else:
             pid = p["id"]
         if orden is None:
@@ -289,10 +375,10 @@ def add_fase(proyecto, titulo, contexto="", orden=None, minutos=None):
         )
 
 
-def fase_actual(proyecto):
+def fase_actual(proyecto, dueno=None):
     """Primera fase pendiente (no hecha) del proyecto."""
     with conn() as c:
-        p = _buscar_proyecto(c, proyecto)
+        p = _buscar_proyecto(c, proyecto, dueno)
         if not p:
             return None
         return c.execute(
@@ -300,10 +386,10 @@ def fase_actual(proyecto):
             (p["id"],)).fetchone()
 
 
-def completar_fase(proyecto):
+def completar_fase(proyecto, dueno=None):
     """Marca como hecha la fase actual; devuelve (completada, siguiente)."""
     with conn() as c:
-        p = _buscar_proyecto(c, proyecto)
+        p = _buscar_proyecto(c, proyecto, dueno)
         if not p:
             return None, None
         actual = c.execute(
@@ -318,11 +404,12 @@ def completar_fase(proyecto):
     return dict(actual), (dict(siguiente) if siguiente else None)
 
 
-def cargar_proyectos(solo_pendientes=True):
+def cargar_proyectos(solo_pendientes=True, dueno=None):
     """Estructura de proyectos con sus fases, para mostrar o pasar a la IA."""
     out = []
     with conn() as c:
-        for p in c.execute("SELECT * FROM proyectos ORDER BY id"):
+        for p in c.execute("SELECT * FROM proyectos WHERE dueno=? ORDER BY id",
+                           (_d(dueno),)):
             q = "SELECT * FROM fases WHERE proyecto_id=?"
             if solo_pendientes:
                 q += " AND hecho=0"
@@ -339,25 +426,29 @@ def cargar_proyectos(solo_pendientes=True):
 
 
 # ------------------------------------------------------------------ intereses
-def get_intereses():
+def _clave_intereses(dueno=None):
+    return "intereses:" + _d(dueno)
+
+
+def get_intereses(dueno=None):
     """Lista de gustos/metas personales del usuario (para sugerencias)."""
     try:
-        return json.loads(estado_get("intereses", "[]") or "[]")
+        return json.loads(estado_get(_clave_intereses(dueno), "[]") or "[]")
     except Exception:
         return []
 
 
-def add_interes(texto):
-    lst = get_intereses()
+def add_interes(texto, dueno=None):
+    lst = get_intereses(dueno)
     texto = texto.strip()
     if texto and texto.lower() not in (i.lower() for i in lst):
         lst.append(texto)
-        estado_set("intereses", json.dumps(lst, ensure_ascii=False))
+        estado_set(_clave_intereses(dueno), json.dumps(lst, ensure_ascii=False))
     return lst
 
 
-def borrar_interes(objetivo):
-    lst = get_intereses()
+def borrar_interes(objetivo, dueno=None):
+    lst = get_intereses(dueno)
     objetivo = str(objetivo).strip()
     quitado = None
     if objetivo.isdigit():
@@ -370,7 +461,7 @@ def borrar_interes(objetivo):
                 quitado = lst.pop(i)
                 break
     if quitado is not None:
-        estado_set("intereses", json.dumps(lst, ensure_ascii=False))
+        estado_set(_clave_intereses(dueno), json.dumps(lst, ensure_ascii=False))
     return quitado
 
 
@@ -398,25 +489,26 @@ def borrar_recordatorio_id(rid):
 
 
 # --------------------------------------------------------------------- notas
-def add_nota(texto):
+def add_nota(texto, dueno=None):
     with conn() as c:
-        c.execute("INSERT INTO notas (texto, fecha) VALUES (?, ?)",
-                  (texto, datetime.datetime.now().strftime("%Y-%m-%d %H:%M")))
+        c.execute("INSERT INTO notas (texto, fecha, dueno) VALUES (?, ?, ?)",
+                  (texto, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                   _d(dueno)))
 
 
-def buscar_notas(objetivo=""):
-    q = "SELECT * FROM notas"
-    args = ()
+def buscar_notas(objetivo="", dueno=None):
+    q = "SELECT * FROM notas WHERE dueno=?"
+    args = [_d(dueno)]
     if objetivo.strip():
-        q += " WHERE LOWER(texto) LIKE ?"
-        args = (f"%{objetivo.strip().lower()}%",)
+        q += " AND LOWER(texto) LIKE ?"
+        args.append(f"%{objetivo.strip().lower()}%")
     q += " ORDER BY id DESC LIMIT 15"
     with conn() as c:
         return [dict(r) for r in c.execute(q, args)]
 
 
-def borrar_nota(objetivo):
-    notas = buscar_notas(str(objetivo) if not str(objetivo).isdigit() else "")
+def borrar_nota(objetivo, dueno=None):
+    notas = buscar_notas(str(objetivo) if not str(objetivo).isdigit() else "", dueno)
     objetivo = str(objetivo).strip()
     elegida = None
     if objetivo.isdigit():
@@ -432,40 +524,43 @@ def borrar_nota(objetivo):
 
 
 # ------------------------------------------------------------------ lecturas
-def set_lectura(nombre, marcador):
+def set_lectura(nombre, marcador, dueno=None):
     with conn() as c:
         c.execute(
-            "INSERT INTO lecturas (nombre, marcador, actualizado) VALUES (?, ?, ?) "
-            "ON CONFLICT(nombre) DO UPDATE SET marcador=excluded.marcador, "
+            "INSERT INTO lecturas (nombre, dueno, marcador, actualizado) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(nombre, dueno) DO UPDATE SET marcador=excluded.marcador, "
             "actualizado=excluded.actualizado",
-            (nombre.strip().lower(), marcador.strip(),
+            (nombre.strip().lower(), _d(dueno), marcador.strip(),
              datetime.date.today().isoformat()))
 
 
-def get_lecturas():
+def get_lecturas(dueno=None):
     with conn() as c:
         return [dict(r) for r in c.execute(
-            "SELECT * FROM lecturas ORDER BY actualizado DESC")]
+            "SELECT * FROM lecturas WHERE dueno=? ORDER BY actualizado DESC",
+            (_d(dueno),))]
 
 
 # ------------------------------------------------------- actividad y racha
-def log_actividad(tipo, texto=""):
+def log_actividad(tipo, texto="", dueno=None):
     with conn() as c:
-        c.execute("INSERT INTO actividad (fecha, tipo, texto) VALUES (?, ?, ?)",
-                  (datetime.date.today().isoformat(), tipo, texto))
+        c.execute("INSERT INTO actividad (fecha, tipo, texto, dueno) VALUES (?, ?, ?, ?)",
+                  (datetime.date.today().isoformat(), tipo, texto, _d(dueno)))
 
 
-def actividad_de(fecha=None):
+def actividad_de(fecha=None, dueno=None):
     f = (fecha or datetime.date.today()).isoformat()
     with conn() as c:
         return [dict(r) for r in c.execute(
-            "SELECT * FROM actividad WHERE fecha=?", (f,))]
+            "SELECT * FROM actividad WHERE fecha=? AND dueno=?", (f, _d(dueno)))]
 
 
-def racha():
+def racha(dueno=None):
     """Dias consecutivos (hasta hoy o ayer) con al menos una actividad."""
     with conn() as c:
-        dias = {r["fecha"] for r in c.execute("SELECT DISTINCT fecha FROM actividad")}
+        dias = {r["fecha"] for r in c.execute(
+            "SELECT DISTINCT fecha FROM actividad WHERE dueno=?", (_d(dueno),))}
     d = datetime.date.today()
     if d.isoformat() not in dias:
         d -= datetime.timedelta(days=1)
@@ -476,10 +571,10 @@ def racha():
     return n
 
 
-def progreso_proyecto(proyecto):
+def progreso_proyecto(proyecto, dueno=None):
     """(hechas, total) de fases del proyecto, o None."""
     with conn() as c:
-        p = _buscar_proyecto(c, proyecto)
+        p = _buscar_proyecto(c, proyecto, dueno)
         if not p:
             return None
         total = c.execute("SELECT COUNT(*) FROM fases WHERE proyecto_id=?",

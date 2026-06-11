@@ -25,6 +25,7 @@ class BaseDB(unittest.TestCase):
         db.init_db()
 
     def tearDown(self):
+        db.set_dueno(db.DUENO_PRINCIPAL)  # no contamines otros tests
         db.DB_PATH = self._orig
         for suf in ("", "-wal", "-shm"):
             p = self.ruta + suf
@@ -114,6 +115,48 @@ class TestIntereses(BaseDB):
         self.assertEqual(len(db.get_intereses()), 2)
         db.borrar_interes("correr")
         self.assertEqual(db.get_intereses(), ["leer"])
+
+
+class TestAislamientoMultiusuario(BaseDB):
+    """Cada dueño ve SOLO sus datos; nada se filtra entre usuarios."""
+
+    def test_tareas_aisladas(self):
+        db.set_dueno("ana")
+        db.guardar_tareas({"pendientes": ["pan de ana"], "eventos": []})
+        db.set_dueno("beto")
+        db.guardar_tareas({"pendientes": ["pan de beto"], "eventos": []})
+        db.set_dueno("ana")
+        self.assertEqual(db.cargar_tareas()["pendientes"], ["pan de ana"])
+        db.set_dueno("beto")
+        self.assertEqual(db.cargar_tareas()["pendientes"], ["pan de beto"])
+
+    def test_recordatorios_aislados(self):
+        db.add_recordatorio("2026-06-11T08:00", "rec de ana", dueno="ana")
+        db.add_recordatorio("2026-06-11T08:00", "rec de beto", dueno="beto")
+        self.assertEqual([r["texto"] for r in db.listar_recordatorios("ana")],
+                         ["rec de ana"])
+        # El barrido global (hilo de recordatorios) los ve todos, con su dueño.
+        ahora = datetime.datetime(2026, 6, 11, 9, 0)
+        venc = db.recordatorios_vencidos(ahora)  # dueno=None -> todos
+        self.assertEqual({r["dueno"] for r in venc}, {"ana", "beto"})
+
+    def test_proyectos_aislados(self):
+        db.set_dueno("ana")
+        db.add_fase("casa", "limpiar")
+        db.set_dueno("beto")
+        self.assertEqual(db.cargar_proyectos(), [])  # beto no ve la casa de ana
+        self.assertIsNone(db.fase_actual("casa"))
+
+    def test_intereses_aislados(self):
+        db.add_interes("guitarra", dueno="ana")
+        self.assertEqual(db.get_intereses("ana"), ["guitarra"])
+        self.assertEqual(db.get_intereses("beto"), [])
+
+    def test_lecturas_misma_clave_distinto_dueno(self):
+        db.set_lectura("biblia", "Juan 5", dueno="ana")
+        db.set_lectura("biblia", "Genesis 1", dueno="beto")
+        self.assertEqual(db.get_lecturas("ana")[0]["marcador"], "Juan 5")
+        self.assertEqual(db.get_lecturas("beto")[0]["marcador"], "Genesis 1")
 
 
 if __name__ == "__main__":
