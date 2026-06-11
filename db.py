@@ -14,6 +14,7 @@ import json
 import sqlite3
 import datetime
 import threading
+import contextlib
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "agenda.db")
@@ -41,13 +42,25 @@ def _d(dueno=None):
     return getattr(_local, "dueno", DUENO_PRINCIPAL)
 
 
+@contextlib.contextmanager
 def conn():
+    """Abre una conexion, hace commit al salir bien (rollback si hay error) y
+    SIEMPRE la cierra. Antes se usaba 'with sqlite3.connect(...)', que hace
+    commit pero NO cierra: cada operacion dejaba una conexion abierta y los
+    descriptores se agotaban ('unable to open database file')."""
     c = sqlite3.connect(DB_PATH, timeout=10)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")     # lecturas y escrituras no se bloquean
     c.execute("PRAGMA busy_timeout=10000")   # espera en vez de fallar si esta ocupada
     c.execute("PRAGMA synchronous=NORMAL")   # rapido y seguro con WAL
-    return c
+    try:
+        yield c
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
 
 
 def init_db():
