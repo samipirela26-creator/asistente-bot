@@ -11,7 +11,6 @@ Ejecutar desde la carpeta asistente/:
 import os
 import sys
 import json
-import time
 import tempfile
 import unittest
 

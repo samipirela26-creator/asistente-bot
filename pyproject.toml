@@ -1,0 +1,33 @@
+# Configuracion de herramientas de DESARROLLO (no afectan al runtime).
+# El bot sigue siendo stdlib pura: ruff y mypy solo se usan en CI/local para
+# revisar calidad, nunca son dependencias para ejecutar el bot.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# Conjunto de alto valor y bajo ruido:
+#   E/W = estilo pycodestyle (errores reales),
+#   F   = pyflakes (imports sin usar, nombres indefinidos, f-strings rotas),
+#   B   = flake8-bugbear (bugs sutiles: except amplio, mutables por defecto...),
+#   C4  = comprehensions mas claras.
+select = ["E", "F", "W", "B", "C4"]
+# Ignorados a conciencia (no son bugs, son estilo del proyecto):
+#   E501 lineas largas: muchos textos/HTML de Telegram lo justifican,
+#   E741 nombre de variable 'l' en comprensiones cortas de lecturas,
+#   E731 un unico lambda de limpieza en busqueda.py,
+#   E402 imports tras 'log = ...' (orden deliberado de los modulos locales).
+ignore = ["E501", "E741", "E731", "E402"]
+
+[tool.ruff.lint.per-file-ignores]
+# Los tests insertan sys.path antes de importar el paquete: import no-top OK.
+"tests/*" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+# Arranca en modo TOLERANTE: tipa lo que pueda, no rompe el build todavia.
+# A medida que se anoten tipos se puede ir endureciendo (disallow_untyped_defs).
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true

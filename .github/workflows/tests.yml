@@ -1,7 +1,7 @@
 name: tests
 
-# Corre los tests en cada push y cada pull request a main.
-# El bot es stdlib pura (sin pip install), asi que el CI es muy simple/rapido.
+# Corre en cada push y PR a main. El bot es stdlib pura (sin pip en runtime);
+# ruff y mypy se instalan SOLO para el CI, no son dependencias del bot.
 on:
   push:
     branches: [main]
@@ -22,3 +22,29 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Ejecutar la suite de tests
         run: python -m unittest discover -s tests -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar ruff (solo CI)
+        run: pip install ruff
+      - name: Lint con ruff
+        run: ruff check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    # No bloquea el build todavia: el tipado se va anotando de a poco.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar mypy (solo CI)
+        run: pip install mypy
+      - name: Chequeo de tipos con mypy
+        run: mypy --config-file pyproject.toml . || true

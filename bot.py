@@ -21,7 +21,6 @@ import time
 import json
 import signal
 import logging
-import tempfile
 import threading
 import datetime
 import urllib.parse
