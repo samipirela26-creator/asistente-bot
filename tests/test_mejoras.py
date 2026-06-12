@@ -151,6 +151,36 @@ class InsistenciaAcotadaTest(unittest.TestCase):
         self.assertEqual(self._fila(rid)["enviado"], 1)
 
 
+class SchemaVersionTest(unittest.TestCase):
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+
+    def tearDown(self):
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def test_db_fresca_queda_en_la_version_actual(self):
+        db.init_db()
+        self.assertEqual(db.schema_version(), db.SCHEMA_VERSION)
+
+    def test_init_db_es_idempotente(self):
+        db.init_db()
+        db.init_db()  # segundo arranque: no debe fallar ni cambiar la version
+        self.assertEqual(db.schema_version(), db.SCHEMA_VERSION)
+        # y las columnas migradas existen
+        with db.conn() as c:
+            cols = [r[1] for r in c.execute("PRAGMA table_info(recordatorios)")]
+        for col in ("insistir_min", "grupo", "insistir_veces", "dueno"):
+            self.assertIn(col, cols)
+
+
 class SilencioNocturnoTest(unittest.TestCase):
     def test_saca_de_madrugada(self):
         import datetime as dt

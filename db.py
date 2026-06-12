@@ -114,6 +114,65 @@ def conn():
         c.close()
 
 
+# Version actual del esquema. SUBE este numero cada vez que agregues una
+# migracion nueva en _aplicar_migraciones (y agrega el bloque correspondiente).
+# Historial:
+#   1 = base + insistir_min/grupo/insistir_veces, fases.minutos, columna dueno
+#       multiusuario y reconstruccion de 'lecturas' con PK (nombre, dueno).
+SCHEMA_VERSION = 1
+
+
+def schema_version():
+    """Version del esquema aplicada a la BD actual (PRAGMA user_version)."""
+    with conn() as c:
+        return c.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _aplicar_migraciones(c, desde):
+    """Aplica, EN ORDEN, las migraciones cuya version sea mayor que 'desde'.
+    Cada paso es idempotente (revisa antes de alterar) para que sea seguro
+    incluso sobre una BD que ya tenia los cambios de una version anterior del
+    codigo no-versionada. 'c' es una conexion abierta dentro de una transaccion."""
+    if desde < 1:
+        # --- Migracion 1: columnas extra y modelo multiusuario ---
+        cols = [r[1] for r in c.execute("PRAGMA table_info(recordatorios)")]
+        if "insistir_min" not in cols:
+            c.execute("ALTER TABLE recordatorios ADD COLUMN insistir_min INTEGER")
+        if "grupo" not in cols:
+            c.execute("ALTER TABLE recordatorios ADD COLUMN grupo TEXT")
+        if "insistir_veces" not in cols:
+            c.execute("ALTER TABLE recordatorios ADD COLUMN insistir_veces INTEGER DEFAULT 0")
+        cols_f = [r[1] for r in c.execute("PRAGMA table_info(fases)")]
+        if "minutos" not in cols_f:
+            c.execute("ALTER TABLE fases ADD COLUMN minutos INTEGER")
+        for tabla in ("pendientes", "eventos", "recordatorios", "proyectos",
+                      "notas", "actividad"):
+            cols_t = [r[1] for r in c.execute(f"PRAGMA table_info({tabla})")]
+            if "dueno" not in cols_t:
+                c.execute(f"ALTER TABLE {tabla} ADD COLUMN dueno TEXT")
+            c.execute(f"UPDATE {tabla} SET dueno=? WHERE dueno IS NULL",
+                      (DUENO_PRINCIPAL,))
+        cols_l = [r[1] for r in c.execute("PRAGMA table_info(lecturas)")]
+        if "dueno" not in cols_l:
+            c.executescript(
+                """
+                CREATE TABLE lecturas_new (
+                    nombre      TEXT NOT NULL,
+                    dueno       TEXT NOT NULL,
+                    marcador    TEXT NOT NULL,
+                    actualizado TEXT NOT NULL,
+                    PRIMARY KEY (nombre, dueno)
+                );
+                INSERT INTO lecturas_new (nombre, dueno, marcador, actualizado)
+                    SELECT nombre, 'principal', marcador, actualizado FROM lecturas;
+                DROP TABLE lecturas;
+                ALTER TABLE lecturas_new RENAME TO lecturas;
+                """
+            )
+    # Migracion 2 (futura): añade aqui un bloque `if desde < 2:` y sube
+    # SCHEMA_VERSION a 2. No reordenes ni borres los bloques anteriores.
+
+
 def init_db():
     with conn() as c:
         c.executescript(
@@ -184,49 +243,14 @@ def init_db():
             );
             """
         )
-        # Migracion suave: anadir columna insistir_min a recordatorios si falta.
-        cols = [r[1] for r in c.execute("PRAGMA table_info(recordatorios)")]
-        if "insistir_min" not in cols:
-            c.execute("ALTER TABLE recordatorios ADD COLUMN insistir_min INTEGER")
-        # Migracion: grupo para recordatorios escalonados (varios avisos de una tarea).
-        if "grupo" not in cols:
-            c.execute("ALTER TABLE recordatorios ADD COLUMN grupo TEXT")
-        # Migracion: cuantas veces MAS hay que volver a insistir (lo elige el
-        # usuario por botones; 0 = avisa una sola vez).
-        if "insistir_veces" not in cols:
-            c.execute("ALTER TABLE recordatorios ADD COLUMN insistir_veces INTEGER DEFAULT 0")
-        # Migracion: minutos estimados por fase.
-        cols_f = [r[1] for r in c.execute("PRAGMA table_info(fases)")]
-        if "minutos" not in cols_f:
-            c.execute("ALTER TABLE fases ADD COLUMN minutos INTEGER")
-        # Migracion multiusuario: anadir columna 'dueno' a las tablas por-usuario
-        # y asignar los datos viejos al dueno principal (eran globales).
-        for tabla in ("pendientes", "eventos", "recordatorios", "proyectos",
-                      "notas", "actividad"):
-            cols_t = [r[1] for r in c.execute(f"PRAGMA table_info({tabla})")]
-            if "dueno" not in cols_t:
-                c.execute(f"ALTER TABLE {tabla} ADD COLUMN dueno TEXT")
-            c.execute(f"UPDATE {tabla} SET dueno=? WHERE dueno IS NULL",
-                      (DUENO_PRINCIPAL,))
-        # lecturas tenia 'nombre' como PK unica; ahora la clave es (nombre,dueno)
-        # para que dos personas puedan tener la misma lectura. Se reconstruye.
-        cols_l = [r[1] for r in c.execute("PRAGMA table_info(lecturas)")]
-        if "dueno" not in cols_l:
-            c.executescript(
-                """
-                CREATE TABLE lecturas_new (
-                    nombre      TEXT NOT NULL,
-                    dueno       TEXT NOT NULL,
-                    marcador    TEXT NOT NULL,
-                    actualizado TEXT NOT NULL,
-                    PRIMARY KEY (nombre, dueno)
-                );
-                INSERT INTO lecturas_new (nombre, dueno, marcador, actualizado)
-                    SELECT nombre, 'principal', marcador, actualizado FROM lecturas;
-                DROP TABLE lecturas;
-                ALTER TABLE lecturas_new RENAME TO lecturas;
-                """
-            )
+        # Esquema VERSIONADO: las migraciones se aplican en orden y una sola vez.
+        # SQLite recuerda la version aplicada en 'PRAGMA user_version', asi que
+        # en cada arranque normal NO se vuelve a inspeccionar/alterar nada (es
+        # mas rapido y deja un registro claro de la evolucion del esquema).
+        version = c.execute("PRAGMA user_version").fetchone()[0]
+        if version < SCHEMA_VERSION:
+            _aplicar_migraciones(c, version)
+            c.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         # Indices para consultas frecuentes.
         c.execute("CREATE INDEX IF NOT EXISTS idx_rec_pend "
                   "ON recordatorios (enviado, cuando)")
