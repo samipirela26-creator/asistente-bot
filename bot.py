@@ -44,16 +44,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "2.3"
+VERSION = "3.0"
 NOVEDADES = (
-    "🚀 <b>Bot actualizado · v2.3</b>\n\n"
-    "• 🖥️ <b>Nuevo hogar:</b> ahora corro desde el Lenovo, encendido 24/7, "
-    "para estar siempre disponible.\n"
-    "• 🔄 <b>Auto-actualización:</b> cada cambio que se sube se instala solo, "
-    "sin que tengas que hacer nada.\n"
-    "• 🩹 <b>Más estable:</b> arreglé una fuga de conexiones que tumbaba los "
-    "recordatorios; ahora puedo correr días sin fallar.\n\n"
-    "Tus datos llegaron completos. Sigo avisándote aquí cada actualización. 💪"
+    "🚀 <b>Bot actualizado · v3.0</b>\n\n"
+    "• 🔔 <b>Insistencia a tu medida:</b> cuando creas un recordatorio con "
+    "aviso repetido, te pregunto cuántas veces insistir (o «🔥 súper "
+    "insistente» hasta que marques Hecho).\n"
+    "• 🌙 <b>Nada de avisos de madrugada:</b> las re-insistencias se guardan "
+    "para la mañana; el resumen matutino y el nocturno siguen igual.\n"
+    "• 🛡️ <b>Más robusto:</b> si Telegram o la red fallan, ya no me caigo; "
+    "reintento con cabeza.\n"
+    "• 📊 <b>Métricas:</b> escribe <i>/metricas</i> (solo tú) para ver uso y "
+    "salud.\n\n"
+    "Por dentro: tests del corazón del bot, lint en CI, esquema de datos "
+    "versionado y documentación técnica. 💪"
 )
 
 
