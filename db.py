@@ -733,10 +733,15 @@ def estado_set(clave, valor):
 
 # ------------------------------------------------------------- uso de la IA
 def uso_inc():
-    """Cuenta una llamada a Gemini en el dia de hoy."""
+    """Cuenta una llamada a Gemini en el dia de hoy. La suma la hace SQLite de
+    forma ATOMICA para que dos hilos (p.ej. el principal y el de recordatorios)
+    no se pisen y pierdan cuentas."""
     clave = "uso_" + datetime.date.today().isoformat()
-    actual = int(estado_get(clave, 0) or 0)
-    estado_set(clave, actual + 1)
+    with conn() as c:
+        c.execute(
+            "INSERT INTO estado (clave, valor) VALUES (?, '1') "
+            "ON CONFLICT(clave) DO UPDATE SET valor = CAST(valor AS INTEGER) + 1",
+            (clave,))
 
 
 def uso_resumen(dias=7):

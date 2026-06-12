@@ -239,6 +239,12 @@ class MetricasTest(unittest.TestCase):
     def test_metricas_vacias(self):
         self.assertEqual(db.metricas(), {})
 
+    def test_uso_inc_acumula(self):
+        for _ in range(3):
+            db.uso_inc()
+        hoy = db.uso_resumen(1)[0]
+        self.assertEqual(hoy[1], 3)
+
 
 class SilencioNocturnoTest(unittest.TestCase):
     def test_saca_de_madrugada(self):
