@@ -178,6 +178,53 @@ class InsistenciaAcotadaTest(unittest.TestCase):
         self.assertEqual(self._fila(rid)["enviado"], 1)
 
 
+class PosponerMadrugadaTest(unittest.TestCase):
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+        db.set_dueno(db.DUENO_PRINCIPAL)
+
+    def tearDown(self):
+        db.set_dueno(db.DUENO_PRINCIPAL)
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def _cuando(self, rid):
+        with db.conn() as c:
+            return c.execute("SELECT cuando FROM recordatorios WHERE id=?",
+                             (rid,)).fetchone()[0]
+
+    def test_difiere_la_no_pedida_a_la_manana(self):
+        import datetime as dt
+        rid = db.add_recordatorio("2030-01-01T02:00", "algo de noche")
+        ahora = dt.datetime(2030, 1, 1, 2, 5)
+        movidos = db.posponer_madrugada((23, 7), ahora=ahora)
+        self.assertEqual(movidos, 1)
+        self.assertEqual(self._cuando(rid), "2030-01-01T07:00")
+
+    def test_respeta_hora_explicita(self):
+        import datetime as dt
+        rid = db.add_recordatorio("2030-01-01T02:00", "alarma a propósito",
+                                  hora_explicita=True)
+        ahora = dt.datetime(2030, 1, 1, 2, 5)
+        self.assertEqual(db.posponer_madrugada((23, 7), ahora=ahora), 0)
+        self.assertEqual(self._cuando(rid), "2030-01-01T02:00")
+
+    def test_no_toca_las_diurnas(self):
+        import datetime as dt
+        rid = db.add_recordatorio("2030-01-01T15:00", "de día")
+        ahora = dt.datetime(2030, 1, 1, 15, 5)
+        self.assertEqual(db.posponer_madrugada((23, 7), ahora=ahora), 0)
+        self.assertEqual(self._cuando(rid), "2030-01-01T15:00")
+
+
 class SchemaVersionTest(unittest.TestCase):
     def setUp(self):
         fd, self.ruta = tempfile.mkstemp(suffix=".db")
@@ -204,7 +251,8 @@ class SchemaVersionTest(unittest.TestCase):
         # y las columnas migradas existen
         with db.conn() as c:
             cols = [r[1] for r in c.execute("PRAGMA table_info(recordatorios)")]
-        for col in ("insistir_min", "grupo", "insistir_veces", "dueno"):
+        for col in ("insistir_min", "grupo", "insistir_veces", "dueno",
+                    "hora_explicita"):
             self.assertIn(col, cols)
 
 

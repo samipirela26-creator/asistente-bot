@@ -786,11 +786,12 @@ def vigilar_recordatorios(token, cfg, parar):
         espera = 300  # tope: 5 min
         try:
             db.respaldo_diario()
-            # Cada recordatorio se entrega a su hora (incluida la primera vez de
-            # noche, si el usuario lo programó así). La franja de silencio SOLO
-            # difiere las RE-insistencias automáticas de madrugada; eso lo decide
-            # db.marcar_enviado, no este bucle.
+            # Cada recordatorio se entrega a su hora. La franja de silencio
+            # difiere a la mañana: (a) las entregas cuya hora NO la fijó el
+            # usuario a propósito (posponer_madrugada, evita sorpresas de
+            # madrugada) y (b) las RE-insistencias automáticas (db.marcar_enviado).
             silencio = _franja_silencio(cfg)
+            db.posponer_madrugada(silencio)
             for r in db.recordatorios_vencidos():  # de todos los dueños
                 botones = [[
                     {"text": "✅ Hecho", "callback_data": f"rec_done:{r['id']}"},

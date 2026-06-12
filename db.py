@@ -119,7 +119,10 @@ def conn():
 # Historial:
 #   1 = base + insistir_min/grupo/insistir_veces, fases.minutos, columna dueno
 #       multiusuario y reconstruccion de 'lecturas' con PK (nombre, dueno).
-SCHEMA_VERSION = 1
+#   2 = recordatorios.hora_explicita: marca si el usuario fijo la hora a
+#       proposito. Si es 0, una entrega que caiga de madrugada se difiere a la
+#       manana (evita avisos sorpresa a las 2am que nadie pidio).
+SCHEMA_VERSION = 2
 
 
 def schema_version():
@@ -169,8 +172,14 @@ def _aplicar_migraciones(c, desde):
                 ALTER TABLE lecturas_new RENAME TO lecturas;
                 """
             )
-    # Migracion 2 (futura): añade aqui un bloque `if desde < 2:` y sube
-    # SCHEMA_VERSION a 2. No reordenes ni borres los bloques anteriores.
+    if desde < 2:
+        # --- Migracion 2: marca de hora puesta a proposito por el usuario ---
+        cols = [r[1] for r in c.execute("PRAGMA table_info(recordatorios)")]
+        if "hora_explicita" not in cols:
+            c.execute("ALTER TABLE recordatorios "
+                      "ADD COLUMN hora_explicita INTEGER DEFAULT 0")
+    # Migracion 3 (futura): añade aqui un bloque `if desde < 3:` y sube
+    # SCHEMA_VERSION a 3. No reordenes ni borres los bloques anteriores.
 
 
 def init_db():
@@ -317,14 +326,21 @@ def guardar_tareas(tareas, dueno=None):
 
 # --------------------------------------------------------------- recordatorios
 def add_recordatorio(cuando_iso, texto, repetir=None, insistir_min=None,
-                     grupo=None, dueno=None, insistir_veces=0):
-    """Crea un recordatorio y devuelve su id."""
+                     grupo=None, dueno=None, insistir_veces=0,
+                     hora_explicita=False):
+    """Crea un recordatorio y devuelve su id.
+
+    hora_explicita=True cuando el usuario fijo la hora a proposito (p.ej. dijo
+    'a las 2 de la mañana'): en ese caso suena a su hora aunque sea de noche.
+    Si es False y cae en la franja de silencio, 'posponer_madrugada' lo movera
+    a la mañana antes de entregarlo."""
     with conn() as c:
         cur = c.execute(
             "INSERT INTO recordatorios (cuando, texto, repetir, insistir_min, "
-            "grupo, dueno, insistir_veces) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "grupo, dueno, insistir_veces, hora_explicita) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (cuando_iso, texto, repetir, insistir_min, grupo, _d(dueno),
-             insistir_veces),
+             insistir_veces, 1 if hora_explicita else 0),
         )
         return cur.lastrowid
 
@@ -395,6 +411,34 @@ def recordatorios_vencidos(ahora=None, dueno=None):
     q += " ORDER BY cuando"
     with conn() as c:
         return [dict(r) for r in c.execute(q, args)]
+
+
+def posponer_madrugada(silencio=SILENCIO, ahora=None):
+    """Mueve a la mañana (hora de fin de silencio) las entregas pendientes que
+    caigan en la franja de madrugada y NO tengan la hora puesta a proposito
+    (hora_explicita=0). Evita avisos sorpresa de madrugada que el usuario no
+    pidio. Lo llama el hilo de recordatorios antes de barrer los vencidos.
+    Devuelve cuantos recordatorios re-agendó."""
+    if ahora is None:
+        ahora = datetime.datetime.now()
+    movidos = 0
+    with conn() as c:
+        pend = c.execute(
+            "SELECT id, cuando FROM recordatorios "
+            "WHERE enviado=0 AND hora_explicita=0 AND cuando<=?",
+            (ahora.strftime("%Y-%m-%dT%H:%M"),)).fetchall()
+        for r in pend:
+            try:
+                cuando = datetime.datetime.strptime(r["cuando"], "%Y-%m-%dT%H:%M")
+            except (ValueError, TypeError):
+                continue
+            if not _en_silencio(cuando, silencio):
+                continue
+            destino = _sacar_de_silencio(ahora, silencio)
+            c.execute("UPDATE recordatorios SET cuando=? WHERE id=?",
+                      (destino.strftime("%Y-%m-%dT%H:%M"), r["id"]))
+            movidos += 1
+    return movidos
 
 
 def proximo_recordatorio(dueno=None):
