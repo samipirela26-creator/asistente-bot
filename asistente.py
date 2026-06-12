@@ -18,6 +18,7 @@ import json
 import sys
 import os
 import time
+import socket
 import logging
 import datetime
 import urllib.error
@@ -92,25 +93,60 @@ def todos_los_chats(cfg):
 
 
 def api_telegram(metodo, params, token, reintentos=3):
-    """Llama a la API de Telegram. Devuelve el JSON de respuesta.
-    Ante un 429 (Too Many Requests) espera 'retry_after' y reintenta."""
+    """Llama a la API de Telegram. Devuelve SIEMPRE un dict (nunca lanza),
+    distinguiendo el tipo de fallo de red para reaccionar distinto:
+
+      - 429 Too Many Requests -> respeta 'retry_after' y reintenta.
+      - 5xx (servidor de Telegram caido) -> reintenta con backoff exponencial.
+      - 4xx (otro): error nuestro (token/params) -> NO reintenta, devuelve ok=False.
+      - timeout / conexion caida (socket.timeout, URLError) -> transitorio,
+        reintenta con backoff.
+      - respuesta ilegible (JSONDecodeError) -> devuelve ok=False.
+
+    Esto evita que un bache de red tumbe al que llama: en el peor caso recibe
+    un dict {"ok": False, ...} y decide, en vez de una excepcion sin capturar."""
     url = f"https://api.telegram.org/bot{token}/{metodo}"
     datos = urllib.parse.urlencode(params).encode("utf-8")
     for intento in range(reintentos):
+        ultimo = reintentos - 1
         try:
             with urllib.request.urlopen(url, data=datos, timeout=30) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
-            if e.code == 429 and intento < reintentos - 1:
+            if e.code == 429:
                 try:
                     cuerpo = json.loads(e.read().decode("utf-8"))
                     espera = cuerpo.get("parameters", {}).get("retry_after", 1)
-                except Exception:
+                except (ValueError, OSError):
                     espera = 1
-                time.sleep(espera + max(0.1, espera * 0.1))  # +10% de margen
+                if intento < ultimo:
+                    time.sleep(espera + max(0.1, espera * 0.1))  # +10% margen
+                    continue
+                return {"ok": False, "error": "rate_limit", "description":
+                        "429 tras agotar reintentos"}
+            if 500 <= e.code < 600 and intento < ultimo:
+                # Telegram caido: backoff exponencial (1s, 2s, 4s...).
+                log.warning("Telegram %s devolvio %s; reintento", metodo, e.code)
+                time.sleep(2 ** intento)
                 continue
-            raise
-    return {"ok": False, "description": "agotados los reintentos"}
+            # 4xx (token o params malos): es culpa nuestra, no insistir.
+            log.error("Telegram %s rechazo la llamada (%s)", metodo, e.code)
+            return {"ok": False, "error": f"http_{e.code}",
+                    "description": str(e)}
+        except (socket.timeout, TimeoutError, urllib.error.URLError) as e:
+            # Red intermitente: reintentar con backoff; si se agota, ok=False.
+            if intento < ultimo:
+                log.warning("Telegram %s sin red (%s); reintento", metodo, e)
+                time.sleep(2 ** intento)
+                continue
+            return {"ok": False, "error": "red", "description": str(e)}
+        except (ValueError, json.JSONDecodeError) as e:
+            # Respuesta no-JSON (raro): no tiene sentido reintentar.
+            log.error("Telegram %s devolvio algo ilegible: %s", metodo, e)
+            return {"ok": False, "error": "respuesta_invalida",
+                    "description": str(e)}
+    return {"ok": False, "error": "reintentos_agotados",
+            "description": "agotados los reintentos"}
 
 
 def _trocear(texto, limite=LIMITE_TELEGRAM):
