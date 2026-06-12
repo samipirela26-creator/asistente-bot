@@ -785,6 +785,32 @@ def sugerencia_proactiva(token, chat_ids):
     db.estado_set("ultima_sugerencia", ahora)
 
 
+# Umbrales de salud de servicios (proactivo, no solo registrar):
+IA_FALLOS_ALERTA = 5      # fallos de IA seguidos antes de avisar
+LATIDO_MAX_S = 900        # 15 min sin hablar con Telegram = sin red/atascado
+
+
+def salud_servicios(ahora=None):
+    """Devuelve una lista de problemas de SERVICIO (no de hardware) para que el
+    bot AVISE en vez de solo registrar:
+      - la IA falla de forma sostenida (todas las IAs caídas o sin cuota),
+      - lleva demasiado tiempo sin poder hablar con Telegram (sin red/atascado).
+    El aviso real (con su límite de 1/hora) lo hace el bucle que la llama."""
+    if ahora is None:
+        ahora = time.time()
+    problemas = []
+    fallos = int(float(db.estado_get("ia_fallos_seguidos", 0) or 0))
+    if fallos >= IA_FALLOS_ALERTA:
+        problemas.append(f"🧠 La IA lleva {fallos} fallos seguidos "
+                         "(sin respuesta de ninguna IA: red o cuotas).")
+    latido = float(db.estado_get("latido", 0) or 0)
+    if latido and ahora - latido > LATIDO_MAX_S:
+        mins = int((ahora - latido) / 60)
+        problemas.append(f"📡 Sin contacto con Telegram desde hace {mins} min "
+                         "(¿sin red o el polling atascado?).")
+    return problemas
+
+
 def vigilar_recordatorios(token, cfg, parar):
     """Envia los recordatorios vencidos (de CUALQUIER usuario, cada uno a su
     chat) y duerme justo hasta el proximo. Si llega un mensaje, se reevalua."""
@@ -813,9 +839,10 @@ def vigilar_recordatorios(token, cfg, parar):
                                      token, cid, botones=botones)
                 db.marcar_enviado(r, silencio=silencio)
             # (sugerencia proactiva desactivada: resultaba molesta)
-            # Salud de la maquina: si algo esta critico, avisa (max 1 vez/hora)
+            # Salud de la maquina y de los SERVICIOS: si algo esta critico,
+            # avisa al admin (max 1 vez/hora). Incluye IA caida y sin red.
             try:
-                problemas = sistema.alertas()
+                problemas = sistema.alertas() + salud_servicios()
                 ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
                 if problemas and time.time() - ult > 3600:
                     msg = "⚠️ <b>Alerta de la máquina</b>\n" + "\n".join(
@@ -959,6 +986,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
                 historial=historial, extras=extras, cfg=cfg,
                 usar_gemini=time.time() >= pausa)
             db.metrica_observar("ia", (time.time() - _t0) * 1000)
+            db.estado_set("ia_fallos_seguidos", 0)  # respondió: cadena rota
             lineas, cambio, preguntas = ejecutar_acciones(acciones, tareas)
             respuesta = frase + (("\n\n" + "\n".join(lineas)) if lineas else "")
             if cambio:
@@ -972,6 +1000,8 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
         except Exception as e:
             # Llega aqui solo si Gemini Y TODOS los respaldos fallaron.
             db.metrica_inc("ia_fallos")
+            db.estado_set("ia_fallos_seguidos",
+                          int(float(db.estado_get("ia_fallos_seguidos", 0) or 0)) + 1)
             log.error("Todas las IAs fallaron: %s", e)
             A.enviar_mensaje(
                 prefijo + "😴 Ninguna IA respondio (red o cuotas); "

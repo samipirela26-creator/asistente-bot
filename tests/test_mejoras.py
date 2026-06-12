@@ -307,6 +307,46 @@ class MetricasTest(unittest.TestCase):
         self.assertEqual(hoy[1], 3)
 
 
+class SaludServiciosTest(unittest.TestCase):
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def test_todo_bien_sin_alertas(self):
+        db.estado_set("ia_fallos_seguidos", 0)
+        db.estado_set("latido", 1000.0)
+        self.assertEqual(bot.salud_servicios(ahora=1000.0), [])
+
+    def test_ia_caida_alerta(self):
+        db.estado_set("ia_fallos_seguidos", bot.IA_FALLOS_ALERTA)
+        db.estado_set("latido", 1000.0)
+        probs = bot.salud_servicios(ahora=1000.0)
+        self.assertTrue(any("IA" in p for p in probs))
+
+    def test_sin_red_alerta(self):
+        db.estado_set("ia_fallos_seguidos", 0)
+        db.estado_set("latido", 1000.0)
+        probs = bot.salud_servicios(ahora=1000.0 + bot.LATIDO_MAX_S + 60)
+        self.assertTrue(any("Telegram" in p for p in probs))
+
+    def test_latido_cero_no_alerta(self):
+        # Sin latido previo (arranque): no inventamos una alarma de "sin red".
+        db.estado_set("ia_fallos_seguidos", 0)
+        db.estado_set("latido", 0)
+        self.assertEqual(bot.salud_servicios(ahora=1e9), [])
+
+
 class SilencioNocturnoTest(unittest.TestCase):
     def test_saca_de_madrugada(self):
         import datetime as dt
