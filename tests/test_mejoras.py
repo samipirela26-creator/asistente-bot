@@ -99,6 +99,33 @@ class ConfigEnvTest(unittest.TestCase):
         self.assertEqual(modo, "600")
 
 
+class ValidarConfigTest(unittest.TestCase):
+    def test_config_buena_sin_avisos(self):
+        cfg = {"token": "123456:ABCdef", "chat_id": "8717805844",
+               "chat_ids": ["8717805844", "1560483859"],
+               "silencio_inicio": 23, "silencio_fin": 7}
+        self.assertEqual(asistente.validar_config(cfg), [])
+
+    def test_token_invalido_avisa(self):
+        avisos = asistente.validar_config({"token": "sin_dos_puntos"})
+        self.assertTrue(any("token" in a.lower() for a in avisos))
+
+    def test_chat_id_no_numerico_avisa(self):
+        avisos = asistente.validar_config(
+            {"token": "1:A", "chat_id": "hola"})
+        self.assertTrue(any("chat_id" in a for a in avisos))
+
+    def test_silencio_fuera_de_rango_avisa(self):
+        avisos = asistente.validar_config(
+            {"token": "1:A", "silencio_inicio": 99})
+        self.assertTrue(any("silencio_inicio" in a for a in avisos))
+
+    def test_chat_ids_no_lista_avisa(self):
+        avisos = asistente.validar_config(
+            {"token": "1:A", "chat_ids": "8717805844"})
+        self.assertTrue(any("chat_ids" in a for a in avisos))
+
+
 class InsistenciaAcotadaTest(unittest.TestCase):
     def setUp(self):
         fd, self.ruta = tempfile.mkstemp(suffix=".db")

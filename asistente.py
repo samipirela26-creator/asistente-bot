@@ -66,6 +66,50 @@ def _proteger_config():
         pass
 
 
+def validar_config(cfg):
+    """Revisa la FORMA del config y devuelve una lista de avisos (texto).
+    No lanza: solo describe lo que podria estar mal, para registrarlo al
+    arrancar y no fallar en silencio mas tarde. Lista vacia = todo en orden."""
+    avisos = []
+    if not isinstance(cfg, dict):
+        return ["config.json no es un objeto JSON (se esperaba {...})."]
+
+    token = str(cfg.get("token", "")).strip()
+    if not token:
+        avisos.append("Falta 'token' (el de @BotFather).")
+    elif token.startswith("PEGA_") or ":" not in token:
+        avisos.append("El 'token' no parece valido (formato 123456:ABC...).")
+
+    # chat_id (viejo, opcional) y chat_ids (lista) deben ser numericos.
+    uno = str(cfg.get("chat_id", "")).strip()
+    if uno and not uno.lstrip("-").isdigit() and not uno.startswith("PEGA_"):
+        avisos.append(f"'chat_id' deberia ser numerico, no '{uno}'.")
+    ids = cfg.get("chat_ids", [])
+    if ids and not isinstance(ids, list):
+        avisos.append("'chat_ids' deberia ser una lista.")
+    elif isinstance(ids, list):
+        for cid in ids:
+            s = str(cid).strip()
+            if s and not s.lstrip("-").isdigit() and not s.startswith("PEGA_"):
+                avisos.append(f"'chat_ids' tiene un id no numerico: '{s}'.")
+
+    # Franja de silencio: horas 0-23 si estan presentes.
+    for clave in ("silencio_inicio", "silencio_fin"):
+        if clave in cfg:
+            try:
+                h = int(cfg[clave])
+                if not 0 <= h <= 23:
+                    avisos.append(f"'{clave}' debe estar entre 0 y 23.")
+            except (TypeError, ValueError):
+                avisos.append(f"'{clave}' debe ser un numero de hora (0-23).")
+
+    # Las claves secretas, si estan, deben ser texto.
+    for clave in _CLAVES_SECRETAS:
+        if clave in cfg and not isinstance(cfg[clave], str):
+            avisos.append(f"'{clave}' deberia ser texto.")
+    return avisos
+
+
 def cargar_config():
     cfg = cargar_json(CONFIG_PATH, {})
     _proteger_config()
@@ -74,6 +118,9 @@ def cargar_config():
         env = os.environ.get("AGENDA_" + clave.upper(), "").strip()
         if env:
             cfg[clave] = env
+    # Avisa (sin romper) de problemas de forma para no fallar en silencio.
+    for aviso in validar_config(cfg):
+        log.warning("Config: %s", aviso)
     token = cfg.get("token", "").strip()
     chat_id = str(cfg.get("chat_id", "")).strip()
     return cfg, token, chat_id
