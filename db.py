@@ -749,6 +749,56 @@ def uso_resumen(dias=7):
     return out
 
 
+# ------------------------------------------------------- metricas / observabilidad
+# Contadores acumulados desde que arranco el bot por primera vez (viven en la
+# tabla 'estado' con prefijo 'metrica:'). Sirven para ver de un vistazo cuanto
+# se usa el bot y cuanto falla la IA, sin montar Prometheus ni nada externo.
+_PREFIJO_METRICA = "metrica:"
+
+
+def metrica_inc(nombre, n=1):
+    """Suma n a un contador de forma ATOMICA (a prueba de hilos: la suma la hace
+    SQLite, no Python, asi dos hilos no se pisan)."""
+    clave = _PREFIJO_METRICA + nombre
+    with conn() as c:
+        c.execute(
+            "INSERT INTO estado (clave, valor) VALUES (?, ?) "
+            "ON CONFLICT(clave) DO UPDATE SET "
+            "valor = CAST(valor AS INTEGER) + ?",
+            (clave, str(int(n)), int(n)))
+
+
+def metrica_observar(nombre, ms):
+    """Registra una latencia (ms): acumula suma y cuenta para sacar el promedio.
+    Guarda dos contadores: '<nombre>_ms_suma' y '<nombre>_n'."""
+    metrica_inc(nombre + "_ms_suma", int(ms))
+    metrica_inc(nombre + "_n", 1)
+
+
+def metricas():
+    """Devuelve {nombre: valor} de todos los contadores. Para latencias agrega
+    '<nombre>_ms_prom' (promedio en ms) calculado al vuelo."""
+    out = {}
+    with conn() as c:
+        filas = c.execute(
+            "SELECT clave, valor FROM estado WHERE clave LIKE ?",
+            (_PREFIJO_METRICA + "%",)).fetchall()
+    for f in filas:
+        nombre = f["clave"][len(_PREFIJO_METRICA):]
+        try:
+            out[nombre] = int(f["valor"])
+        except (TypeError, ValueError):
+            out[nombre] = f["valor"]
+    # Promedios de latencia donde haya suma + n.
+    for clave in list(out):
+        if clave.endswith("_ms_suma"):
+            base = clave[:-len("_ms_suma")]
+            n = out.get(base + "_n", 0)
+            if n:
+                out[base + "_ms_prom"] = round(out[clave] / n)
+    return out
+
+
 # ------------------------------------------------------------------ respaldo
 def respaldo_diario():
     """Copia agenda.db a respaldos/ una vez al dia; conserva los ultimos 7."""

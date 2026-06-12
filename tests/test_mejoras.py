@@ -181,6 +181,38 @@ class SchemaVersionTest(unittest.TestCase):
             self.assertIn(col, cols)
 
 
+class MetricasTest(unittest.TestCase):
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def test_inc_acumula(self):
+        db.metrica_inc("mensajes")
+        db.metrica_inc("mensajes", 4)
+        self.assertEqual(db.metricas()["mensajes"], 5)
+
+    def test_observar_calcula_promedio(self):
+        db.metrica_observar("ia", 100)
+        db.metrica_observar("ia", 300)
+        m = db.metricas()
+        self.assertEqual(m["ia_n"], 2)
+        self.assertEqual(m["ia_ms_prom"], 200)  # (100+300)/2
+
+    def test_metricas_vacias(self):
+        self.assertEqual(db.metricas(), {})
+
+
 class SilencioNocturnoTest(unittest.TestCase):
     def test_saca_de_madrugada(self):
         import datetime as dt

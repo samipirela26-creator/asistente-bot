@@ -823,8 +823,32 @@ def vigilar_recordatorios(token, cfg, parar):
             break
 
 
+def _texto_metricas():
+    """Resumen legible de los contadores para el administrador."""
+    m = db.metricas()
+    if not m:
+        return "📊 Aún no hay métricas registradas."
+    msgs = m.get("mensajes", 0)
+    bot_p = m.get("botones", 0)
+    ia_n = m.get("ia_n", 0)
+    ia_fall = m.get("ia_fallos", 0)
+    ia_prom = m.get("ia_ms_prom")
+    tasa = f"{100 * ia_fall / (ia_n + ia_fall):.0f}%" if (ia_n + ia_fall) else "—"
+    lineas = [
+        "📊 <b>Métricas</b>",
+        f"  💬 Mensajes: <b>{msgs}</b>",
+        f"  🔘 Botones: <b>{bot_p}</b>",
+        f"  🤖 Llamadas IA OK: <b>{ia_n}</b>",
+        f"  ⚠️ Fallos IA: <b>{ia_fall}</b> (tasa {tasa})",
+    ]
+    if ia_prom is not None:
+        lineas.append(f"  ⏱ Latencia IA media: <b>{ia_prom} ms</b>")
+    return "\n".join(lineas)
+
+
 # ----------------------------------------------------------- procesar mensaje
 def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
+    db.metrica_inc("mensajes")
     tareas = db.cargar_tareas()
 
     # 0) Atajos con botones (menu minimalista).
@@ -832,6 +856,14 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
     if low in ("menu", "/menu", "m"):
         A.enviar_mensaje("👇 <b>¿Qué hacemos?</b>", token, chat_id,
                          botones=botones_menu())
+        return
+    if low in ("metricas", "/metricas", "métricas", "/métricas"):
+        # Diagnostico tecnico: solo el creador lo ve.
+        if str(chat_id) in [str(c) for c in creador(cfg)]:
+            A.enviar_mensaje(_texto_metricas(), token, chat_id)
+        else:
+            A.enviar_mensaje("🔒 Ese comando es solo para el administrador.",
+                             token, chat_id)
         return
     if low in ("proyectos", "/proyectos", "mis proyectos"):
         A.enviar_mensaje(texto_proyectos(), token, chat_id,
@@ -905,10 +937,12 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
                 "intereses_personales": db.get_intereses(),
             }
             db.uso_inc()
+            _t0 = time.time()
             acciones, frase = gemini_ia.interpretar(
                 texto, tareas, api_key, proyectos=proyectos,
                 historial=historial, extras=extras, cfg=cfg,
                 usar_gemini=time.time() >= pausa)
+            db.metrica_observar("ia", (time.time() - _t0) * 1000)
             lineas, cambio, preguntas = ejecutar_acciones(acciones, tareas)
             respuesta = frase + (("\n\n" + "\n".join(lineas)) if lineas else "")
             if cambio:
@@ -921,6 +955,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
             return
         except Exception as e:
             # Llega aqui solo si Gemini Y TODOS los respaldos fallaron.
+            db.metrica_inc("ia_fallos")
             log.error("Todas las IAs fallaron: %s", e)
             A.enviar_mensaje(
                 prefijo + "😴 Ninguna IA respondio (red o cuotas); "
@@ -942,6 +977,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
 # ------------------------------------------------------------------- botones
 def manejar_boton(cb, cfg, token, chat_id):
     """Procesa los botones inline (recordatorios, proyectos y menu)."""
+    db.metrica_inc("botones")
     data = cb.get("data", "")
     aviso = ""
     botones = None
