@@ -186,7 +186,7 @@ def construir_resumen(tareas, hoy):
     proximos.sort(key=lambda x: x[0])
 
     lineas = []
-    lineas.append(f"☀️ <b>Buenos dias!</b>\n📆 {fecha_legible(hoy)}")
+    lineas.append(f"☀️ <b>¡Buenos días!</b>\n📆 {fecha_legible(hoy)}")
     lineas.append("")
 
     if hoy_eventos:
@@ -208,11 +208,11 @@ def construir_resumen(tareas, hoy):
     if proximos:
         lineas.append("🔜 <b>Esta semana:</b>")
         for dias, ev in proximos:
-            cuando = "manana" if dias == 1 else f"en {dias} dias"
+            cuando = "mañana" if dias == 1 else f"en {dias} días"
             lineas.append(f"  • {esc(ev.get('titulo', ''))} ({cuando})")
         lineas.append("")
 
-    lineas.append("💪 Que tengas un gran dia!")
+    lineas.append("💪 ¡Que tengas un gran día!")
     return "\n".join(lineas)
 
 
@@ -226,7 +226,7 @@ def construir_recordatorios(tareas, hoy):
             continue
         dias = (f - hoy).days
         if dias in (0, 1):
-            cuando = "HOY" if dias == 0 else "MANANA"
+            cuando = "HOY" if dias == 0 else "MAÑANA"
             hora = ev.get("hora", "")
             extra = f" a las {esc(hora)}" if hora else ""
             avisos.append(f"- {cuando}{extra}: {esc(ev.get('titulo', ''))}")
@@ -237,7 +237,7 @@ def construir_recordatorios(tareas, hoy):
 
 def comando_chatid(token):
     print("Abre Telegram, busca tu bot y envíale cualquier mensaje (por ej. 'hola').")
-    print("Luego vuelve aqui y pulsa Enter...")
+    print("Luego vuelve aquí y pulsa Enter...")
     input()
     res = api_telegram("getUpdates", {}, token)
     if not res.get("ok") or not res.get("result"):
@@ -316,12 +316,12 @@ def main():
             lineas.append(f"✅ Hoy completaste <b>{len(hechos)}</b> cosa(s):")
             lineas += [f"  • {h['texto'] or h['tipo']}" for h in hechos[:8]]
         else:
-            lineas.append("Hoy no registraste avances; manana sera mejor dia 🌱")
+            lineas.append("Hoy no registraste avances; mañana será mejor día 🌱")
         r = _db.racha()
         if r > 1:
-            lineas.append(f"🔥 Racha: {r} dias seguidos avanzando ✊")
+            lineas.append(f"🔥 Racha: {r} días seguidos avanzando ✊")
         if pend:
-            lineas.append(f"\n📝 Quedan {len(pend)} pendiente(s) para manana.")
+            lineas.append(f"\n📝 Quedan {len(pend)} pendiente(s) para mañana.")
         lineas.append("😴 Descansa bien!")
         msg = "\n".join(lineas)
         for cid in destinos:
@@ -334,7 +334,7 @@ def main():
                 enviar_mensaje(texto, token, cid)
             print("Recordatorios enviados.")
         else:
-            print("No hay recordatorios para hoy/manana.")
+            print("No hay recordatorios para hoy/mañana.")
     else:
         print(__doc__)
 

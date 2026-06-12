@@ -182,8 +182,8 @@ def texto_uso():
     total = sum(n for _, n in filas)
     cuerpo = "\n".join(f"  {'📍' if i == 0 else '▫️'} {f}: {n} llamadas"
                        for i, (f, n) in enumerate(filas))
-    msg = (f"🤖 <b>Uso de la IA</b> (limite gratis ≈ 250/dia)\n{cuerpo}\n"
-           f"  Σ ultimos 7 dias: <b>{total}</b>")
+    msg = (f"🤖 <b>Uso de la IA</b> (límite gratis ≈ 250/día)\n{cuerpo}\n"
+           f"  Σ últimos 7 días: <b>{total}</b>")
     pausa = float(db.estado_get("ia_pausada_hasta", 0) or 0)
     if time.time() < pausa:
         mins = int((pausa - time.time()) / 60) + 1
@@ -307,7 +307,7 @@ def atajo(texto, tareas):
         return (
             "👋 <b>Hola! Soy tu agenda con IA.</b>\n"
             "Escribeme con naturalidad, por ejemplo:\n\n"
-            "⏰ <i>recuerdame llamar al banco manana a las 10</i>\n"
+            "⏰ <i>recuérdame llamar al banco mañana a las 10</i>\n"
             "🏗 <i>crea el proyecto pizzeria cuatro estaciones</i>\n"
             "▶️ <i>cual es la siguiente fase de la pizzeria?</i>\n"
             "💡 <i>estoy esperando, tengo internet y 15 min</i>\n"
@@ -371,14 +371,14 @@ def procesar_simple(texto, tareas, estricto=False):
     m = re.match(r"^(borra|elimina|quita)\s+evento\s+(.+)$", low)
     if m:
         q = quitar_evento(tareas, t[m.start(2):])
-        return (f"🗑 Listo, elimine el evento: <i>{esc(q.get('titulo',''))}</i>", True) if q \
-            else ("🤔 No encontre ese evento. Escribe <b>lista</b>.", False)
+        return (f"🗑 Listo, eliminé el evento: <i>{esc(q.get('titulo',''))}</i>", True) if q \
+            else ("🤔 No encontré ese evento. Escribe <b>lista</b>.", False)
 
     m = re.match(r"^(borra|elimina|quita)\s+(?:pendiente\s+|tarea\s+)?(.+)$", low)
     if m:
         q = quitar_pendiente(tareas, t[m.start(2):])
-        return (f"✅ Listo, borre: <i>{esc(q)}</i>", True) if q \
-            else ("🤔 No encontre ese pendiente. Escribe <b>lista</b>.", False)
+        return (f"✅ Listo, borré: <i>{esc(q)}</i>", True) if q \
+            else ("🤔 No encontré ese pendiente. Escribe <b>lista</b>.", False)
 
     m = re.match(r"^evento\s+(\d{4}-\d{2}-\d{2})\s+(?:(\d{1,2}:\d{2})\s+)?(.+)$", t, re.I)
     if m:
@@ -429,7 +429,7 @@ def procesar_simple(texto, tareas, estricto=False):
                 msg += f"\n      📊 Vas {prog[0]} de {prog[1]} ✊"
             r2 = db.racha()
             if r2 > 1:
-                msg += f"\n      🔥 Racha: {r2} dias seguidos!"
+                msg += f"\n      🔥 Racha: {r2} días seguidos!"
             msg += (f"\n      ▶️ Sigue: <i>{esc(sig['titulo'])}</i>" if sig
                     else "\n      🎉 <b>Proyecto terminado!</b>")
             return (msg, False)
@@ -473,17 +473,17 @@ def procesar_simple(texto, tareas, estricto=False):
         insistentes = [r for r in rec if r.get("insistir_min")]
         if len(insistentes) == 1 and not objetivo:
             q = db.borrar_recordatorio(insistentes[0]["texto"])
-            return (f"🎉 Bien hecho! Apague el recordatorio: <i>{esc(q['texto'])}</i>", False)
+            return (f"🎉 Bien hecho! Apagué el recordatorio: <i>{esc(q['texto'])}</i>", False)
         if objetivo:
             q = db.borrar_recordatorio(objetivo)
             if q:
-                return (f"🎉 Bien hecho! Apague el recordatorio: <i>{esc(q['texto'])}</i>", False)
+                return (f"🎉 Bien hecho! Apagué el recordatorio: <i>{esc(q['texto'])}</i>", False)
 
     if estricto:
         return None  # que decida la IA
 
     return ("🤔 No entendi esa. Prueba con frases como:\n"
-            "  ⏰ <i>recuerdame X manana a las 10</i>\n"
+            "  ⏰ <i>recuérdame X mañana a las 10</i>\n"
             "  📝 <i>agrega comprar pan</i>\n"
             "o escribe <b>ayuda</b>.", False)
 
@@ -537,11 +537,11 @@ def ejecutar_acciones(acciones, tareas):
             q = quitar_pendiente(tareas, str(a.get("objetivo", "")))
             if q:
                 db.log_actividad("pendiente", q)
-            lineas.append(f"✅ Listo: <i>{esc(q)}</i>" if q else "🤔 No encontre ese pendiente.")
+            lineas.append(f"✅ Listo: <i>{esc(q)}</i>" if q else "🤔 No encontré ese pendiente.")
             cambio = cambio or bool(q)
         elif tipo == "agregar_evento":
             if not _fecha_ok(a.get("fecha")) or not _hora_ok(a.get("hora")):
-                lineas.append(f"🤔 No agende <i>{esc((a.get('titulo') or '').strip())}</i>: la IA dio una fecha u hora invalida.")
+                lineas.append(f"🤔 No agendé <i>{esc((a.get('titulo') or '').strip())}</i>: la IA dio una fecha u hora inválida.")
                 continue
             nuevo = {"fecha": a.get("fecha", ""), "titulo": (a.get("titulo") or "").strip()}
             if a.get("hora"):
@@ -552,7 +552,7 @@ def ejecutar_acciones(acciones, tareas):
             cambio = True
         elif tipo == "borrar_evento":
             q = quitar_evento(tareas, str(a.get("objetivo", "")))
-            lineas.append(f"🗑 Evento borrado: <i>{esc(q.get('titulo',''))}</i>" if q else "🤔 No encontre ese evento.")
+            lineas.append(f"🗑 Evento borrado: <i>{esc(q.get('titulo',''))}</i>" if q else "🤔 No encontré ese evento.")
             cambio = cambio or bool(q)
         elif tipo == "agregar_recordatorio":
             cuando = a.get("cuando", "")
@@ -560,14 +560,14 @@ def ejecutar_acciones(acciones, tareas):
             rep = a.get("repetir") or None
             if rep in ("null", "", "none"):
                 rep = None
-            insistir = a.get("insistir_min")
-            if insistir in ("null", "", "none", 0):
-                insistir = None
+            # Insistencia desactivada a propósito: un recordatorio avisa UNA vez
+            # (antes re-agendaba cada X min y resultaba molesto).
+            insistir = None
             grupo = a.get("grupo")
             if grupo in ("null", "", "none"):
                 grupo = None
             if not _cuando_ok(cuando):
-                lineas.append(f"🤔 No cree el recordatorio <i>{esc(txt)}</i>: la IA dio una fecha/hora invalida.")
+                lineas.append(f"🤔 No creé el recordatorio <i>{esc(txt)}</i>: la IA dio una fecha/hora inválida.")
                 continue
             # Evita ráfagas: en un plan escalonado, omite los avisos cuya hora
             # ya pasó hace más de 5 min (se dispararían todos de golpe).
@@ -600,7 +600,7 @@ def ejecutar_acciones(acciones, tareas):
                     msg += f" (y sus {q['borrados']} avisos 🔕)"
                 lineas.append(msg)
             else:
-                lineas.append("🤔 No encontre ese recordatorio.")
+                lineas.append("🤔 No encontré ese recordatorio.")
         elif tipo == "listar_recordatorios":
             rec = db.listar_recordatorios()
             if rec:
@@ -629,11 +629,11 @@ def ejecutar_acciones(acciones, tareas):
                     msg += f"\n      📊 Vas {prog[0]} de {prog[1]} ✊"
                 r = db.racha()
                 if r > 1:
-                    msg += f"\n      🔥 Racha: {r} dias seguidos avanzando!"
+                    msg += f"\n      🔥 Racha: {r} días seguidos avanzando!"
                 msg += f"\n      ▶️ Sigue: <i>{esc(sig['titulo'])}</i>" if sig else "\n      🎉 <b>Proyecto terminado!</b>"
                 lineas.append(msg)
             else:
-                lineas.append("🤔 No encontre fases pendientes en ese proyecto.")
+                lineas.append("🤔 No encontré fases pendientes en ese proyecto.")
         elif tipo == "siguiente_fase":
             f = db.fase_actual(a.get("proyecto", ""))
             if f:
@@ -659,10 +659,10 @@ def ejecutar_acciones(acciones, tareas):
                     f"  {i}. {esc(n['texto'])}\n      📆 {n['fecha'][:10]}"
                     for i, n in enumerate(notas, 1)))
             else:
-                lineas.append("🤔 No encontre notas con eso.")
+                lineas.append("🤔 No encontré notas con eso.")
         elif tipo == "borrar_nota":
             q = db.borrar_nota(a.get("objetivo", ""))
-            lineas.append(f"🗑 Nota borrada: <i>{esc(q['texto'])}</i>" if q else "🤔 No encontre esa nota.")
+            lineas.append(f"🗑 Nota borrada: <i>{esc(q['texto'])}</i>" if q else "🤔 No encontré esa nota.")
         elif tipo == "agregar_interes":
             txt = (a.get("texto") or "").strip()
             if txt:
@@ -670,7 +670,7 @@ def ejecutar_acciones(acciones, tareas):
                 lineas.append(f"🎯 Interes guardado: <i>{esc(txt)}</i>")
         elif tipo == "borrar_interes":
             q = db.borrar_interes(a.get("objetivo", ""))
-            lineas.append(f"🗑 Interes borrado: <i>{esc(q)}</i>" if q else "🤔 No encontre ese interes.")
+            lineas.append(f"🗑 Interes borrado: <i>{esc(q)}</i>" if q else "🤔 No encontré ese interes.")
         elif tipo == "listar_intereses":
             lineas.append(texto_intereses())
         elif tipo == "guardar_lectura":
@@ -745,13 +745,13 @@ def vigilar_recordatorios(token, cfg, parar):
                     A.enviar_mensaje(f"⏰ <b>Recordatorio:</b> {esc(r['texto'])}",
                                      token, cid, botones=botones)
                 db.marcar_enviado(r)
-            sugerencia_proactiva(token, chat_ids)
+            # (sugerencia proactiva desactivada: resultaba molesta)
             # Salud de la maquina: si algo esta critico, avisa (max 1 vez/hora)
             try:
                 problemas = sistema.alertas()
                 ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
                 if problemas and time.time() - ult > 3600:
-                    msg = "⚠️ <b>Alerta de la maquina</b>\n" + "\n".join(
+                    msg = "⚠️ <b>Alerta de la máquina</b>\n" + "\n".join(
                         f"  {p}" for p in problemas)
                     for cid in chat_ids:
                         A.enviar_mensaje(msg, token, cid)
@@ -796,7 +796,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
         consulta = m.group(1).strip(" ?¿!.")
         resultados = busqueda.buscar(consulta)
         if not resultados:
-            A.enviar_mensaje("🔍 No encontre nada en la web sobre eso.", token, chat_id)
+            A.enviar_mensaje("🔍 No encontré nada en la web sobre eso.", token, chat_id)
             return
         api_key = cfg.get("gemini_api_key", "").strip()
         pausa = float(db.estado_get("ia_pausada_hasta", 0) or 0)
@@ -811,7 +811,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
             except Exception as e:
                 log.warning("Busqueda con IA fallo, uso resultados crudos: %s", e)
         # Sin IA: mando los resultados crudos con sus links
-        lineas = ["🔍 <b>Encontre esto:</b>"]
+        lineas = ["🔍 <b>Encontré esto:</b>"]
         for r in resultados[:4]:
             lineas.append(f"\n• <b>{esc(r['titulo'])}</b>\n  {esc(r['resumen'][:200])}\n  🔗 {esc(r['url'])}")
         A.enviar_mensaje("\n".join(lineas), token, chat_id)
@@ -873,8 +873,8 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
                 prefijo + "😴 Ninguna IA respondio (red o cuotas); "
                 "intenta de nuevo en un rato.\n"
                 "Mientras, entiendo comandos directos:\n"
-                "  ⏰ <i>recuerdame X manana a las 10</i>\n"
-                "  📅 <i>agendame X manana 10am</i>\n"
+                "  ⏰ <i>recuérdame X mañana a las 10</i>\n"
+                "  📅 <i>agéndame X mañana 10am</i>\n"
                 "  📋 <b>lista</b> · 🏗 <b>proyectos</b> · ☀️ <b>resumen</b>",
                 token, chat_id)
             return
@@ -923,7 +923,7 @@ def manejar_boton(cb, cfg, token, chat_id):
                     aviso += f"\n      📊 Vas {prog[0]} de {prog[1]} ✊"
                 r = db.racha()
                 if r > 1:
-                    aviso += f"\n      🔥 Racha: {r} dias seguidos!"
+                    aviso += f"\n      🔥 Racha: {r} días seguidos!"
                 aviso += (f"\n      ▶️ Sigue: <i>{esc(sig['titulo'])}</i>" if sig
                           else "\n      🎉 <b>Proyecto terminado!</b>")
             else:
@@ -941,7 +941,7 @@ def manejar_boton(cb, cfg, token, chat_id):
             if q:
                 aviso = f"🎉 Bien hecho! ✅ <i>{esc(q['texto'])}</i>"
                 if q.get("borrados", 0) > 1:
-                    aviso += f"\n🔕 Apague los {q['borrados']} avisos de esa tarea."
+                    aviso += f"\n🔕 Apagué los {q['borrados']} avisos de esa tarea."
             else:
                 aviso = "🤷 Ese recordatorio ya no existe."
         elif accion == "rec_post":

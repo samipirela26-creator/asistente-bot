@@ -349,13 +349,9 @@ def marcar_enviado(recordatorio):
     - normal: se marca como enviado y no vuelve.
     """
     ahora = datetime.datetime.now()
-    insistir = recordatorio.get("insistir_min")
+    # La insistencia (re-agendar cada X min) se desactivó por molesta: hasta los
+    # recordatorios marcados como insistentes avisan una sola vez y se apagan.
     with conn() as c:
-        if insistir:
-            siguiente = (ahora + datetime.timedelta(minutes=int(insistir))).strftime("%Y-%m-%dT%H:%M")
-            c.execute("UPDATE recordatorios SET cuando=? WHERE id=?",
-                      (siguiente, recordatorio["id"]))
-            return
         c.execute("UPDATE recordatorios SET enviado=1 WHERE id=?", (recordatorio["id"],))
         rep = recordatorio.get("repetir")
         if rep in ("diario", "semanal"):
