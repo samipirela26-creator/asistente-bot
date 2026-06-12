@@ -27,6 +27,32 @@ JSON_VIEJO = os.path.join(BASE_DIR, "tareas.json")
 DUENO_PRINCIPAL = "principal"
 _local = threading.local()
 
+# Franja de "silencio" nocturno: las RE-insistencias automáticas que caerían de
+# madrugada se posponen hasta SILENCIO_FIN. NO afecta a la primera entrega de un
+# recordatorio (esa siempre suena a su hora, aunque sea de noche): solo evita que
+# un aviso se repita una y otra vez pasada la medianoche.
+SILENCIO = (23, 7)  # (hora_inicio, hora_fin) -> [23:00, 07:00)
+
+
+def _en_silencio(dt, silencio=SILENCIO):
+    ini, fin = silencio
+    h = dt.hour
+    if ini < fin:
+        return ini <= h < fin
+    return h >= ini or h < fin  # cruza medianoche
+
+
+def _sacar_de_silencio(dt, silencio=SILENCIO):
+    """Si 'dt' cae en la franja de silencio, lo mueve a la hora de fin de
+    silencio (mañana). Si no, lo deja igual."""
+    if not _en_silencio(dt, silencio):
+        return dt
+    fin = silencio[1]
+    objetivo = dt.replace(hour=fin, minute=0, second=0, microsecond=0)
+    if objetivo <= dt:
+        objetivo += datetime.timedelta(days=1)
+    return objetivo
+
 
 def set_dueno(dueno):
     """Fija un dueno por defecto FIJO para el hilo actual. Úsalo solo para hilos
@@ -360,7 +386,7 @@ def proximo_recordatorio(dueno=None):
     return r["cuando"] if r else None
 
 
-def marcar_enviado(recordatorio):
+def marcar_enviado(recordatorio, silencio=SILENCIO):
     """Procesa un recordatorio que ya se envio.
     - insistente: se re-agenda dentro de X minutos (sigue avisando hasta que
       lo borres con 'ya lo hice').
@@ -371,12 +397,16 @@ def marcar_enviado(recordatorio):
     insistir = recordatorio.get("insistir_min")
     veces = recordatorio.get("insistir_veces") or 0
     with conn() as c:
-        # Insistencia ACOTADA: solo vuelve a avisar las veces que el usuario
-        # pidió (se eligen por botones). Cada reenvío descuenta una.
-        if insistir and veces > 0:
-            siguiente = (ahora + datetime.timedelta(minutes=int(insistir))).strftime("%Y-%m-%dT%H:%M")
+        # Insistencia a pedido: vuelve a avisar solo las veces que el usuario
+        # eligió por botones (veces>0, descontando) o "hasta que lo marque
+        # hecho" (veces==-1, súper insistente). La PRIMERA vez siempre suena a
+        # su hora; solo las RE-insistencias evitan la madrugada (silencio).
+        if insistir and (veces > 0 or veces == -1):
+            siguiente = _sacar_de_silencio(
+                ahora + datetime.timedelta(minutes=int(insistir)), silencio)
+            quedan = veces if veces == -1 else veces - 1
             c.execute("UPDATE recordatorios SET cuando=?, insistir_veces=? WHERE id=?",
-                      (siguiente, veces - 1, recordatorio["id"]))
+                      (siguiente.strftime("%Y-%m-%dT%H:%M"), quedan, recordatorio["id"]))
             return
         c.execute("UPDATE recordatorios SET enviado=1 WHERE id=?", (recordatorio["id"],))
         rep = recordatorio.get("repetir")

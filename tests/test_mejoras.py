@@ -152,5 +152,29 @@ class InsistenciaAcotadaTest(unittest.TestCase):
         self.assertEqual(self._fila(rid)["enviado"], 1)
 
 
+class SilencioNocturnoTest(unittest.TestCase):
+    def test_saca_de_madrugada(self):
+        import datetime as dt
+        # 02:00 cae en la franja [23,7): se mueve a las 07:00 del mismo día.
+        m = dt.datetime(2030, 1, 1, 2, 0)
+        s = db._sacar_de_silencio(m, (23, 7))
+        self.assertEqual((s.hour, s.minute), (7, 0))
+        self.assertEqual(s.date(), m.date())
+
+    def test_respeta_horario_diurno(self):
+        import datetime as dt
+        # 15:00 NO está en silencio: se deja igual.
+        m = dt.datetime(2030, 1, 1, 15, 0)
+        self.assertEqual(db._sacar_de_silencio(m, (23, 7)), m)
+
+    def test_tarde_noche_pasa_al_dia_siguiente(self):
+        import datetime as dt
+        # 23:30 está en silencio; el fin (07:00) es del día siguiente.
+        m = dt.datetime(2030, 1, 1, 23, 30)
+        s = db._sacar_de_silencio(m, (23, 7))
+        self.assertEqual((s.hour, s.minute), (7, 0))
+        self.assertEqual(s.date(), dt.date(2030, 1, 2))
+
+
 if __name__ == "__main__":
     unittest.main()

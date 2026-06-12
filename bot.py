@@ -157,26 +157,6 @@ def _franja_silencio(cfg):
     return ini, fin
 
 
-def en_silencio(ahora, cfg):
-    """True si 'ahora' (datetime) cae en la franja de silencio nocturno."""
-    ini, fin = _franja_silencio(cfg)
-    if ini == fin:
-        return False
-    h = ahora.hour
-    if ini < fin:               # franja dentro del mismo día (raro)
-        return ini <= h < fin
-    return h >= ini or h < fin   # franja que cruza medianoche (lo normal)
-
-
-def segundos_hasta_fin_silencio(ahora, cfg):
-    """Cuántos segundos faltan para que termine el silencio (para dormir)."""
-    _, fin = _franja_silencio(cfg)
-    objetivo = ahora.replace(hour=fin, minute=0, second=0, microsecond=0)
-    if objetivo <= ahora:
-        objetivo += datetime.timedelta(days=1)
-    return max(1, (objetivo - ahora).total_seconds())
-
-
 # ------------------------------------------------------------------ utilidades
 def texto_proyectos(completo=False):
     """Resumen de proyectos grandes con su progreso y fase actual."""
@@ -654,6 +634,8 @@ def ejecutar_acciones(acciones, tareas):
                      {"text": "3 veces", "callback_data": f"ins_set:{rid}:{inter}:3"}],
                     [{"text": "5 veces", "callback_data": f"ins_set:{rid}:{inter}:5"},
                      {"text": "No insistir", "callback_data": f"ins_set:{rid}:{inter}:0"}],
+                    [{"text": "🔥 Súper insistente",
+                      "callback_data": f"ins_set:{rid}:{inter}:-1"}],
                 ]
                 preguntas.append((
                     f"🔔 ¿Cuántas veces te insisto con <i>{esc(txt)}</i> "
@@ -801,38 +783,38 @@ def vigilar_recordatorios(token, cfg, parar):
         espera = 300  # tope: 5 min
         try:
             db.respaldo_diario()
-            ahora_dt = datetime.datetime.now()
-            if en_silencio(ahora_dt, cfg):
-                # Madrugada: no molestar. Los vencidos esperan a la mañana.
-                espera = segundos_hasta_fin_silencio(ahora_dt, cfg)
-            else:
-                for r in db.recordatorios_vencidos():  # de todos los dueños
-                    botones = [[
-                        {"text": "✅ Hecho", "callback_data": f"rec_done:{r['id']}"},
-                        {"text": "⏰ +30 min", "callback_data": f"rec_post:{r['id']}"},
-                    ]]
-                    for cid in destinos_de(r.get("dueno") or db.DUENO_PRINCIPAL, cfg):
-                        A.enviar_mensaje(f"⏰ <b>Recordatorio:</b> {esc(r['texto'])}",
-                                         token, cid, botones=botones)
-                    db.marcar_enviado(r)
-                # (sugerencia proactiva desactivada: resultaba molesta)
-                # Salud de la maquina: si algo esta critico, avisa (max 1 vez/hora)
-                try:
-                    problemas = sistema.alertas()
-                    ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
-                    if problemas and time.time() - ult > 3600:
-                        msg = "⚠️ <b>Alerta de la máquina</b>\n" + "\n".join(
-                            f"  {p}" for p in problemas)
-                        for cid in creador(cfg):  # técnico: solo al creador
-                            A.enviar_mensaje(msg, token, cid)
-                        db.estado_set("ult_alerta_sistema", time.time())
-                except Exception as e:
-                    log.warning("Error revisando salud de la maquina: %s", e)
-                prox = db.proximo_recordatorio()
-                if prox:
-                    falta = (datetime.datetime.strptime(prox, "%Y-%m-%dT%H:%M")
-                             - datetime.datetime.now()).total_seconds()
-                    espera = max(1, min(espera, falta))
+            # Cada recordatorio se entrega a su hora (incluida la primera vez de
+            # noche, si el usuario lo programó así). La franja de silencio SOLO
+            # difiere las RE-insistencias automáticas de madrugada; eso lo decide
+            # db.marcar_enviado, no este bucle.
+            silencio = _franja_silencio(cfg)
+            for r in db.recordatorios_vencidos():  # de todos los dueños
+                botones = [[
+                    {"text": "✅ Hecho", "callback_data": f"rec_done:{r['id']}"},
+                    {"text": "⏰ +30 min", "callback_data": f"rec_post:{r['id']}"},
+                ]]
+                for cid in destinos_de(r.get("dueno") or db.DUENO_PRINCIPAL, cfg):
+                    A.enviar_mensaje(f"⏰ <b>Recordatorio:</b> {esc(r['texto'])}",
+                                     token, cid, botones=botones)
+                db.marcar_enviado(r, silencio=silencio)
+            # (sugerencia proactiva desactivada: resultaba molesta)
+            # Salud de la maquina: si algo esta critico, avisa (max 1 vez/hora)
+            try:
+                problemas = sistema.alertas()
+                ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
+                if problemas and time.time() - ult > 3600:
+                    msg = "⚠️ <b>Alerta de la máquina</b>\n" + "\n".join(
+                        f"  {p}" for p in problemas)
+                    for cid in creador(cfg):  # técnico: solo al creador
+                        A.enviar_mensaje(msg, token, cid)
+                    db.estado_set("ult_alerta_sistema", time.time())
+            except Exception as e:
+                log.warning("Error revisando salud de la maquina: %s", e)
+            prox = db.proximo_recordatorio()
+            if prox:
+                falta = (datetime.datetime.strptime(prox, "%Y-%m-%dT%H:%M")
+                         - datetime.datetime.now()).total_seconds()
+                espera = max(1, min(espera, falta))
         except Exception as e:
             log.warning("Error en el hilo de recordatorios: %s", e)
             espera = 30
@@ -1023,8 +1005,12 @@ def manejar_boton(cb, cfg, token, chat_id):
             # rid trae "id:intervalo:veces" (cuántas veces insistir).
             rec_id, inter, veces = (int(x) for x in rid.split(":"))
             db.configurar_insistencia(rec_id, inter, veces)
-            if veces > 0:
-                cada = f"{inter} min" if inter < 60 else f"{inter // 60} h"
+            cada = f"{inter} min" if inter < 60 else f"{inter // 60} h"
+            if veces == -1:
+                aviso = (f"🔥 Modo súper insistente: te avisaré cada {cada} "
+                         "hasta que marques <b>Hecho</b> (de madrugada espero "
+                         "a la mañana para no molestar).")
+            elif veces > 0:
                 aviso = (f"🔔 Listo: te insistiré hasta <b>{veces}</b> "
                          f"vez(ces) más, cada {cada}, si no marcas Hecho.")
             else:
