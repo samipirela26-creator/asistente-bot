@@ -66,7 +66,8 @@ Suele ser cuota o red. El bot sigue aceptando **comandos directos**
 (`gemini_api_key`, etc.) y la conectividad. Se recupera solo.
 
 ### 5. Base de datos corrupta o se perdió `agenda.db`
-Hay respaldo diario en `respaldos/agenda-AAAA-MM-DD.db` (se guardan 7).
+Hay respaldo diario en `respaldos/agenda-AAAA-MM-DD.db` (se guardan 7), creado
+con la online backup API de SQLite (snapshot consistente, seguro de copiar).
 **Restaurar** (probado por `tests/test_respaldo.py`):
 ```bash
 systemctl --user stop agenda-bot.service
@@ -74,6 +75,21 @@ cp respaldos/agenda-AAAA-MM-DD.db agenda.db      # la copia más reciente sana
 rm -f agenda.db-wal agenda.db-shm                # restos de WAL, si los hay
 systemctl --user start agenda-bot.service
 ```
+
+### 5b. Murió el disco/equipo del servidor entero (backup offsite)
+Cada día el **Dell** trae una copia de los respaldos a `~/respaldos-lenovo/`
+(timer `agenda-respaldo-offsite.timer`, vía `respaldo-offsite.sh` por scp+SSH).
+Así, si el Lenovo se pierde por completo, la agenda sigue a salvo en el Dell.
+**Recuperar en una máquina nueva:**
+```bash
+# En el Dell, ver qué copias hay:
+ls -1 ~/respaldos-lenovo/
+# Copiar la más reciente a la máquina nueva y restaurarla como agenda.db
+scp ~/respaldos-lenovo/agenda-AAAA-MM-DD.db usuario@maquina-nueva:/ruta/asistente/agenda.db
+```
+Instalar el offsite en el equipo receptor: `bash instalar-respaldo-offsite.sh`
+(requiere SSH sin contraseña hacia el servidor). Forzar una corrida ahora:
+`systemctl --user start agenda-respaldo-offsite.service`.
 
 ---
 
