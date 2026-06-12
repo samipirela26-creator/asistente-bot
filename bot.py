@@ -428,7 +428,10 @@ def procesar_simple(texto, tareas, estricto=False):
     r = fechas.parsear(t)
     if r:
         cuando, rep, txt = r
-        db.add_recordatorio(cuando, txt, rep)
+        # fechas.parsear solo devuelve algo cuando el usuario dio una hora real
+        # (si no, devuelve None y decide la IA): la hora es explícita, así que
+        # suena a su hora aunque sea de madrugada (no se difiere).
+        db.add_recordatorio(cuando, txt, rep, hora_explicita=True)
         extra = f"\n      🔁 se repite {esc(rep)}" if rep else ""
         return (f"⏰ Recordatorio: <i>{esc(txt)}</i>\n"
                 f"      🕐 {esc(cuando.replace('T', ' · '))}{extra}", False)
