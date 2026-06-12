@@ -25,7 +25,13 @@ import threading
 import datetime
 import urllib.parse
 import urllib.request
+import urllib.error
 from html import escape as esc
+
+try:
+    import fcntl  # lock anti-doble-instancia (solo POSIX; en runtime es Linux)
+except ImportError:
+    fcntl = None
 
 log = logging.getLogger("agenda.bot")
 
@@ -41,6 +47,8 @@ except ImportError:
     gemini_ia = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+_LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
@@ -1072,6 +1080,44 @@ def manejar_boton(cb, cfg, token, chat_id):
 
 
 # --------------------------------------------------------------------- bucle
+def tomar_lock():
+    """Evita DOS instancias del bot en LA MISMA máquina (dos bots con el mismo
+    token compiten y Telegram devuelve 409). Toma un lock exclusivo no
+    bloqueante sobre un archivo; si ya está tomado, devuelve None. Hay que
+    conservar el descriptor abierto mientras viva el proceso (por eso se
+    devuelve y se guarda en una global)."""
+    if fcntl is None:
+        return True  # sin fcntl (no-POSIX): no podemos lockear, seguimos igual
+    ruta = os.path.join(BASE_DIR, ".bot.lock")
+    f = open(ruta, "w")
+    try:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    f.write(str(os.getpid()))
+    f.flush()
+    return f
+
+
+def avisar_conflicto(token, cfg):
+    """Avisa al admin (máx 1 vez/hora) de que OTRA instancia con el mismo token
+    está corriendo en otra parte (Telegram da 409). El lock local solo cubre la
+    misma máquina; esto cubre el caso de dos máquinas (p.ej. Dell + Lenovo)."""
+    try:
+        ult = float(db.estado_get("ult_aviso_409", 0) or 0)
+        if time.time() - ult < 3600:
+            return
+        msg = ("⚠️ <b>Hay otro bot con tu token corriendo</b> (Telegram da 409 "
+               "Conflict). Solo una máquina puede atender a la vez. Apaga el bot "
+               "en la máquina que no debe estar activa.")
+        for cid in creador(cfg):
+            A.enviar_mensaje(msg, token, cid)
+        db.estado_set("ult_aviso_409", time.time())
+    except Exception:
+        pass
+
+
 def main():
     # journald ya pone su timestamp; aqui solo nivel y nombre. LOG_LEVEL configurable.
     logging.basicConfig(
@@ -1079,6 +1125,12 @@ def main():
         format="%(levelname)s %(name)s: %(message)s",
     )
     db.init_db()
+    global _LOCK
+    _LOCK = tomar_lock()
+    if _LOCK is None:
+        log.error("Ya hay otra instancia del bot corriendo en esta máquina "
+                  "(lock tomado). Salgo para no competir por el token.")
+        return
     cfg, token, _ = A.cargar_config()
     chat_ids = chat_ids_permitidos(cfg)
     if not token or not chat_ids:
@@ -1102,6 +1154,7 @@ def main():
     guardado = db.estado_get("tg_offset")
     offset = int(guardado) if guardado else None
     espera_error = 3  # backoff: se duplica ante errores, vuelve a 3 tras un ciclo OK
+    conflictos = 0    # 409 seguidos (otra instancia con el mismo token)
     while not parar.is_set():
         try:
             params = {"timeout": 50,
@@ -1112,6 +1165,7 @@ def main():
             with urllib.request.urlopen(url, timeout=60) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             espera_error = 3  # ciclo exitoso: reinicia el backoff
+            conflictos = 0    # hubo respuesta OK: no hay conflicto activo
             # Latido: prueba de que el bot está vivo y hablando con Telegram.
             # Un chequeador externo (chequear_salud.py) avisa si se queda viejo.
             db.estado_set("latido", time.time())
@@ -1161,6 +1215,16 @@ def main():
         except KeyboardInterrupt:
             apagar()
             break
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                conflictos += 1
+                # Tras varios 409 seguidos avisamos al admin (no es un fallo de
+                # red pasajero: hay otra instancia con el mismo token).
+                if conflictos >= 3:
+                    avisar_conflicto(token, cfg)
+            log.warning("Error en getUpdates (reintento en %ss): %s", espera_error, e)
+            time.sleep(espera_error)
+            espera_error = min(espera_error * 2, 60)
         except Exception as e:
             log.warning("Error en getUpdates (reintento en %ss): %s", espera_error, e)
             time.sleep(espera_error)

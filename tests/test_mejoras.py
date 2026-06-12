@@ -65,6 +65,19 @@ class RateLimitTest(unittest.TestCase):
         self.assertTrue(bot.permitido("otro-usuario")[0])  # no le afecta el ajeno
 
 
+class LockDobleInstanciaTest(unittest.TestCase):
+    def test_segunda_instancia_no_obtiene_lock(self):
+        if bot.fcntl is None:
+            self.skipTest("fcntl no disponible (no POSIX)")
+        primero = bot.tomar_lock()
+        self.assertTrue(primero)            # la 1ª instancia obtiene el lock
+        try:
+            segundo = bot.tomar_lock()
+            self.assertIsNone(segundo)      # la 2ª en la misma máquina: rechazada
+        finally:
+            primero.close()                 # libera el lock
+
+
 class ConfigEnvTest(unittest.TestCase):
     def setUp(self):
         fd, self.ruta = tempfile.mkstemp(suffix=".json")

@@ -10,6 +10,9 @@ agenda.db-wal
 respaldos/
 tareas.json
 
+# Lock anti-doble-instancia (efímero, por máquina)
+.bot.lock
+
 # Cache de Python
 __pycache__/
 *.pyc
