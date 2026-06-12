@@ -131,6 +131,52 @@ def destinos_de(dueno, cfg):
     return [dueno]
 
 
+def creador(cfg):
+    """El chat del USUARIO CREADOR (tú): los avisos técnicos (novedades de
+    versión, alertas de la máquina) van SOLO aquí, no a otras cuentas ni a otros
+    usuarios. Usa 'chat_id_creador' del config si existe; si no, la primera
+    cuenta configurada. Devuelve [] si no hay ninguna."""
+    explicito = str(cfg.get("chat_id_creador", "")).strip()
+    if explicito and not explicito.startswith("PEGA_"):
+        return [explicito]
+    permitidos = chat_ids_permitidos(cfg)
+    return permitidos[:1]
+
+
+# --- Horas de silencio ------------------------------------------------------
+# Nada de recordatorios de madrugada: si uno vence en la franja de silencio, se
+# guarda y se entrega cuando termina (por defecto 23:00 -> 07:00). Configurable
+# con 'silencio_inicio'/'silencio_fin' en config.json (horas 0-23).
+SILENCIO_INICIO = 23
+SILENCIO_FIN = 7
+
+
+def _franja_silencio(cfg):
+    ini = int(cfg.get("silencio_inicio", SILENCIO_INICIO))
+    fin = int(cfg.get("silencio_fin", SILENCIO_FIN))
+    return ini, fin
+
+
+def en_silencio(ahora, cfg):
+    """True si 'ahora' (datetime) cae en la franja de silencio nocturno."""
+    ini, fin = _franja_silencio(cfg)
+    if ini == fin:
+        return False
+    h = ahora.hour
+    if ini < fin:               # franja dentro del mismo día (raro)
+        return ini <= h < fin
+    return h >= ini or h < fin   # franja que cruza medianoche (lo normal)
+
+
+def segundos_hasta_fin_silencio(ahora, cfg):
+    """Cuántos segundos faltan para que termine el silencio (para dormir)."""
+    _, fin = _franja_silencio(cfg)
+    objetivo = ahora.replace(hour=fin, minute=0, second=0, microsecond=0)
+    if objetivo <= ahora:
+        objetivo += datetime.timedelta(days=1)
+    return max(1, (objetivo - ahora).total_seconds())
+
+
 # ------------------------------------------------------------------ utilidades
 def texto_proyectos(completo=False):
     """Resumen de proyectos grandes con su progreso y fase actual."""
@@ -519,9 +565,12 @@ def _cuando_ok(s):
 
 
 def ejecutar_acciones(acciones, tareas):
-    """Aplica las acciones de Gemini. Devuelve (lineas, hubo_cambio_en_tareas)."""
+    """Aplica las acciones de Gemini. Devuelve (lineas, hubo_cambio, preguntas).
+    'preguntas' son mensajes con botones a enviar aparte (ej. preguntar cuántas
+    veces insistir un recordatorio)."""
     lineas = []
     cambio = False
+    preguntas = []
     grupos_vistos = set()
     for a in acciones:
         if not isinstance(a, dict):
@@ -560,9 +609,16 @@ def ejecutar_acciones(acciones, tareas):
             rep = a.get("repetir") or None
             if rep in ("null", "", "none"):
                 rep = None
-            # Insistencia desactivada a propósito: un recordatorio avisa UNA vez
-            # (antes re-agendaba cada X min y resultaba molesto).
-            insistir = None
+            # Intervalo de insistencia que sugiere la IA (en min). No insiste
+            # solo: el recordatorio nace avisando UNA vez y, si la IA detectó
+            # intención de insistir, se le PREGUNTA al usuario cuántas veces.
+            inter = a.get("insistir_min")
+            try:
+                inter = int(inter) if inter not in (None, "null", "", "none", 0, "0") else None
+            except (ValueError, TypeError):
+                inter = None
+            if inter and inter < 1:
+                inter = None
             grupo = a.get("grupo")
             if grupo in ("null", "", "none"):
                 grupo = None
@@ -578,20 +634,30 @@ def ejecutar_acciones(acciones, tareas):
                         continue
                 except (ValueError, TypeError):
                     pass
-            db.add_recordatorio(cuando, txt, rep, insistir, grupo)
+            # Nace con insistir_veces=0: avisa una sola vez salvo que el usuario
+            # elija insistir por los botones de abajo.
+            rid = db.add_recordatorio(cuando, txt, rep, insistir_min=inter,
+                                      grupo=grupo, insistir_veces=0)
             if grupo:
                 if grupo not in grupos_vistos:
                     grupos_vistos.add(grupo)
                     lineas.append("📋 <b>Plan de avisos creado</b> (marca Hecho en cualquiera y se apagan todos):")
                 lineas.append(f"  🕐 {esc(cuando.replace('T',' · '))} — <i>{esc(txt)}</i>")
                 continue
-            if insistir:
-                extra = f"\n      🔔 te insistire cada {esc(str(insistir))} min hasta que lo marques hecho"
-            elif rep:
-                extra = f"\n      🔁 se repite {esc(rep)}"
-            else:
-                extra = ""
+            extra = f"\n      🔁 se repite {esc(rep)}" if rep else ""
             lineas.append(f"⏰ Recordatorio: <i>{esc(txt)}</i>\n      🕐 {esc(cuando.replace('T',' · '))}{extra}")
+            if inter:
+                cada = (f"cada {inter} min" if inter < 60
+                        else f"cada {inter // 60} h")
+                botones_ins = [
+                    [{"text": "1 vez", "callback_data": f"ins_set:{rid}:{inter}:1"},
+                     {"text": "3 veces", "callback_data": f"ins_set:{rid}:{inter}:3"}],
+                    [{"text": "5 veces", "callback_data": f"ins_set:{rid}:{inter}:5"},
+                     {"text": "No insistir", "callback_data": f"ins_set:{rid}:{inter}:0"}],
+                ]
+                preguntas.append((
+                    f"🔔 ¿Cuántas veces te insisto con <i>{esc(txt)}</i> "
+                    f"({cada}) si no respondes?", botones_ins))
         elif tipo == "borrar_recordatorio":
             q = db.borrar_recordatorio(a.get("objetivo", ""))
             if q:
@@ -684,7 +750,7 @@ def ejecutar_acciones(acciones, tareas):
                     for l in lect))
             else:
                 lineas.append("📖 No tienes lecturas registradas.")
-    return lineas, cambio
+    return lineas, cambio, preguntas
 
 
 # ----------------------------------------------------- hilo de recordatorios
@@ -731,38 +797,42 @@ def vigilar_recordatorios(token, cfg, parar):
     # un default fijo de por vida del hilo, no el patrón frágil de ir cambiando
     # de dueño entre mensajes (eso ahora va con db.como_dueno() en el bucle).
     db.set_dueno(db.DUENO_PRINCIPAL)
-    chat_ids = chat_ids_permitidos(cfg)
     while not parar.is_set():
         espera = 300  # tope: 5 min
         try:
             db.respaldo_diario()
-            for r in db.recordatorios_vencidos():  # de todos los dueños
-                botones = [[
-                    {"text": "✅ Hecho", "callback_data": f"rec_done:{r['id']}"},
-                    {"text": "⏰ +30 min", "callback_data": f"rec_post:{r['id']}"},
-                ]]
-                for cid in destinos_de(r.get("dueno") or db.DUENO_PRINCIPAL, cfg):
-                    A.enviar_mensaje(f"⏰ <b>Recordatorio:</b> {esc(r['texto'])}",
-                                     token, cid, botones=botones)
-                db.marcar_enviado(r)
-            # (sugerencia proactiva desactivada: resultaba molesta)
-            # Salud de la maquina: si algo esta critico, avisa (max 1 vez/hora)
-            try:
-                problemas = sistema.alertas()
-                ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
-                if problemas and time.time() - ult > 3600:
-                    msg = "⚠️ <b>Alerta de la máquina</b>\n" + "\n".join(
-                        f"  {p}" for p in problemas)
-                    for cid in chat_ids:
-                        A.enviar_mensaje(msg, token, cid)
-                    db.estado_set("ult_alerta_sistema", time.time())
-            except Exception as e:
-                log.warning("Error revisando salud de la maquina: %s", e)
-            prox = db.proximo_recordatorio()
-            if prox:
-                falta = (datetime.datetime.strptime(prox, "%Y-%m-%dT%H:%M")
-                         - datetime.datetime.now()).total_seconds()
-                espera = max(1, min(espera, falta))
+            ahora_dt = datetime.datetime.now()
+            if en_silencio(ahora_dt, cfg):
+                # Madrugada: no molestar. Los vencidos esperan a la mañana.
+                espera = segundos_hasta_fin_silencio(ahora_dt, cfg)
+            else:
+                for r in db.recordatorios_vencidos():  # de todos los dueños
+                    botones = [[
+                        {"text": "✅ Hecho", "callback_data": f"rec_done:{r['id']}"},
+                        {"text": "⏰ +30 min", "callback_data": f"rec_post:{r['id']}"},
+                    ]]
+                    for cid in destinos_de(r.get("dueno") or db.DUENO_PRINCIPAL, cfg):
+                        A.enviar_mensaje(f"⏰ <b>Recordatorio:</b> {esc(r['texto'])}",
+                                         token, cid, botones=botones)
+                    db.marcar_enviado(r)
+                # (sugerencia proactiva desactivada: resultaba molesta)
+                # Salud de la maquina: si algo esta critico, avisa (max 1 vez/hora)
+                try:
+                    problemas = sistema.alertas()
+                    ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
+                    if problemas and time.time() - ult > 3600:
+                        msg = "⚠️ <b>Alerta de la máquina</b>\n" + "\n".join(
+                            f"  {p}" for p in problemas)
+                        for cid in creador(cfg):  # técnico: solo al creador
+                            A.enviar_mensaje(msg, token, cid)
+                        db.estado_set("ult_alerta_sistema", time.time())
+                except Exception as e:
+                    log.warning("Error revisando salud de la maquina: %s", e)
+                prox = db.proximo_recordatorio()
+                if prox:
+                    falta = (datetime.datetime.strptime(prox, "%Y-%m-%dT%H:%M")
+                             - datetime.datetime.now()).total_seconds()
+                    espera = max(1, min(espera, falta))
         except Exception as e:
             log.warning("Error en el hilo de recordatorios: %s", e)
             espera = 30
@@ -858,13 +928,15 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
                 texto, tareas, api_key, proyectos=proyectos,
                 historial=historial, extras=extras, cfg=cfg,
                 usar_gemini=time.time() >= pausa)
-            lineas, cambio = ejecutar_acciones(acciones, tareas)
+            lineas, cambio, preguntas = ejecutar_acciones(acciones, tareas)
             respuesta = frase + (("\n\n" + "\n".join(lineas)) if lineas else "")
             if cambio:
                 db.guardar_tareas(tareas)
             db.historial_add(chat_id, "user", texto)
             db.historial_add(chat_id, "model", respuesta)
             A.enviar_mensaje(prefijo + respuesta, token, chat_id)
+            for ptxt, pbotones in preguntas:  # ej. "¿cuántas veces te insisto?"
+                A.enviar_mensaje(ptxt, token, chat_id, botones=pbotones)
             return
         except Exception as e:
             # Llega aqui solo si Gemini Y TODOS los respaldos fallaron.
@@ -947,6 +1019,16 @@ def manejar_boton(cb, cfg, token, chat_id):
         elif accion == "rec_post":
             nuevo = db.posponer_recordatorio(int(rid), 30)
             aviso = f"⏰ Pospuesto a las <b>{nuevo.split('T')[1]}</b>"
+        elif accion == "ins_set":
+            # rid trae "id:intervalo:veces" (cuántas veces insistir).
+            rec_id, inter, veces = (int(x) for x in rid.split(":"))
+            db.configurar_insistencia(rec_id, inter, veces)
+            if veces > 0:
+                cada = f"{inter} min" if inter < 60 else f"{inter // 60} h"
+                aviso = (f"🔔 Listo: te insistiré hasta <b>{veces}</b> "
+                         f"vez(ces) más, cada {cada}, si no marcas Hecho.")
+            else:
+                aviso = "👍 De acuerdo, te aviso una sola vez."
     except Exception as e:
         log.warning("Error procesando boton: %s", e)
         aviso = "🤔 No pude procesar el boton."
@@ -974,7 +1056,7 @@ def main():
         log.error("Falta token o chat_id en config.json.")
         return
     log.info("Cuentas permitidas: %s", ", ".join(chat_ids))
-    notificar_actualizacion(token, chat_ids)  # avisa por Telegram si hubo update
+    notificar_actualizacion(token, creador(cfg))  # novedades SOLO al creador
 
     parar = threading.Event()
     hilo = threading.Thread(target=vigilar_recordatorios, args=(token, cfg, parar), daemon=True)

@@ -100,5 +100,57 @@ class ConfigEnvTest(unittest.TestCase):
         self.assertEqual(modo, "600")
 
 
+class InsistenciaAcotadaTest(unittest.TestCase):
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+        db.set_dueno(db.DUENO_PRINCIPAL)
+
+    def tearDown(self):
+        db.set_dueno(db.DUENO_PRINCIPAL)
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def _forzar_vencido(self, rid):
+        with db.conn() as c:
+            c.execute("UPDATE recordatorios SET cuando=? WHERE id=?",
+                      ("2000-01-01T08:00", rid))
+
+    def _fila(self, rid):
+        with db.conn() as c:
+            return dict(c.execute("SELECT * FROM recordatorios WHERE id=?",
+                                  (rid,)).fetchone())
+
+    def test_sin_configurar_avisa_una_sola_vez(self):
+        rid = db.add_recordatorio("2000-01-01T08:00", "entregar algo")
+        db.marcar_enviado(db.recordatorios_vencidos()[0])
+        self.assertEqual(self._fila(rid)["enviado"], 1)
+        self.assertEqual(db.recordatorios_vencidos(), [])
+
+    def test_insiste_solo_las_veces_pedidas(self):
+        rid = db.add_recordatorio("2000-01-01T08:00", "pagar luz")
+        self.assertTrue(db.configurar_insistencia(rid, 30, 2))
+        # Mientras le queden insistencias: re-agenda, descuenta y NO se apaga.
+        for esperado in (2, 1):
+            self._forzar_vencido(rid)
+            r = db.recordatorios_vencidos()[0]
+            self.assertEqual(r["insistir_veces"], esperado)
+            self.assertEqual(r["enviado"], 0)
+            db.marcar_enviado(r)
+        # Agotadas las 2: el siguiente envío lo apaga.
+        self._forzar_vencido(rid)
+        r = db.recordatorios_vencidos()[0]
+        self.assertEqual(r["insistir_veces"], 0)
+        db.marcar_enviado(r)
+        self.assertEqual(self._fila(rid)["enviado"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

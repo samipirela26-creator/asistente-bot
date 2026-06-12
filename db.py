@@ -165,6 +165,10 @@ def init_db():
         # Migracion: grupo para recordatorios escalonados (varios avisos de una tarea).
         if "grupo" not in cols:
             c.execute("ALTER TABLE recordatorios ADD COLUMN grupo TEXT")
+        # Migracion: cuantas veces MAS hay que volver a insistir (lo elige el
+        # usuario por botones; 0 = avisa una sola vez).
+        if "insistir_veces" not in cols:
+            c.execute("ALTER TABLE recordatorios ADD COLUMN insistir_veces INTEGER DEFAULT 0")
         # Migracion: minutos estimados por fase.
         cols_f = [r[1] for r in c.execute("PRAGMA table_info(fases)")]
         if "minutos" not in cols_f:
@@ -263,13 +267,28 @@ def guardar_tareas(tareas, dueno=None):
 
 # --------------------------------------------------------------- recordatorios
 def add_recordatorio(cuando_iso, texto, repetir=None, insistir_min=None,
-                     grupo=None, dueno=None):
+                     grupo=None, dueno=None, insistir_veces=0):
+    """Crea un recordatorio y devuelve su id."""
     with conn() as c:
-        c.execute(
+        cur = c.execute(
             "INSERT INTO recordatorios (cuando, texto, repetir, insistir_min, "
-            "grupo, dueno) VALUES (?, ?, ?, ?, ?, ?)",
-            (cuando_iso, texto, repetir, insistir_min, grupo, _d(dueno)),
+            "grupo, dueno, insistir_veces) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (cuando_iso, texto, repetir, insistir_min, grupo, _d(dueno),
+             insistir_veces),
         )
+        return cur.lastrowid
+
+
+def configurar_insistencia(rec_id, minutos, veces, dueno=None):
+    """Define cada cuántos minutos y cuántas veces MÁS insistir un recordatorio
+    (lo que el usuario elija por botones). Devuelve True si lo encontró."""
+    with conn() as c:
+        cur = c.execute(
+            "UPDATE recordatorios SET insistir_min=?, insistir_veces=? "
+            "WHERE id=? AND dueno=?",
+            (minutos, veces, rec_id, _d(dueno)),
+        )
+        return cur.rowcount > 0
 
 
 def _borrar_grupo(c, grupo):
@@ -349,9 +368,16 @@ def marcar_enviado(recordatorio):
     - normal: se marca como enviado y no vuelve.
     """
     ahora = datetime.datetime.now()
-    # La insistencia (re-agendar cada X min) se desactivó por molesta: hasta los
-    # recordatorios marcados como insistentes avisan una sola vez y se apagan.
+    insistir = recordatorio.get("insistir_min")
+    veces = recordatorio.get("insistir_veces") or 0
     with conn() as c:
+        # Insistencia ACOTADA: solo vuelve a avisar las veces que el usuario
+        # pidió (se eligen por botones). Cada reenvío descuenta una.
+        if insistir and veces > 0:
+            siguiente = (ahora + datetime.timedelta(minutes=int(insistir))).strftime("%Y-%m-%dT%H:%M")
+            c.execute("UPDATE recordatorios SET cuando=?, insistir_veces=? WHERE id=?",
+                      (siguiente, veces - 1, recordatorio["id"]))
+            return
         c.execute("UPDATE recordatorios SET enviado=1 WHERE id=?", (recordatorio["id"],))
         rep = recordatorio.get("repetir")
         if rep in ("diario", "semanal"):
