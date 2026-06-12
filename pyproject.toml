@@ -24,6 +24,23 @@ ignore = ["E501", "E741", "E731", "E402"]
 # Los tests insertan sys.path antes de importar el paquete: import no-top OK.
 "tests/*" = ["E402"]
 
+[tool.coverage.run]
+# Mide la cobertura de los modulos del proyecto, no de los tests ni de la
+# stdlib. branch=true tambien cuenta ramas (if/else), mas estricto que solo lineas.
+source = ["."]
+branch = true
+omit = ["tests/*"]
+
+[tool.coverage.report]
+# Red de seguridad ANTI-REGRESION: si la cobertura cae por debajo de esto, el
+# CI falla. Se fija algo por debajo del valor actual (~38%) para no romper hoy;
+# la idea es SUBIRLO con el tiempo, nunca bajarlo. No infla el numero excluyendo
+# codigo: panel.py y chequear_salud.py son scripts aparte (UI/cron) y por eso
+# se reportan, pero el corazon (db.py, fechas.py) es lo que de verdad importa.
+fail_under = 35
+show_missing = true
+skip_covered = false
+
 [tool.mypy]
 python_version = "3.11"
 # Arranca en modo TOLERANTE: tipa lo que pueda, no rompe el build todavia.

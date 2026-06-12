@@ -23,6 +23,22 @@ jobs:
       - name: Ejecutar la suite de tests
         run: python -m unittest discover -s tests -v
 
+  cobertura:
+    runs-on: ubuntu-latest
+    # Mide que porcentaje del codigo tocan los tests y FALLA si baja del umbral
+    # (fail_under en pyproject.toml). Es una red anti-regresion de calidad.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar coverage (solo CI)
+        run: pip install coverage
+      - name: Medir cobertura de los tests
+        run: |
+          python -m coverage run -m unittest discover -s tests
+          python -m coverage report
+
   lint:
     runs-on: ubuntu-latest
     steps:
