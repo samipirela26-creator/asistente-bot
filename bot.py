@@ -384,7 +384,7 @@ def atajo(texto, tareas):
 
     if low in ("estado", "/estado", "salud", "maquina") or \
             re.search(r"(como|cómo)\s+esta\s+la\s+(lenovo|maquina|máquina|compu)", low):
-        return sistema.estado_texto(), False
+        return sistema.estado_texto() + "\n\n" + salud_texto(), False
 
     if low in ("recordatorios", "/recordatorios", "mis recordatorios"):
         rec = db.listar_recordatorios()
@@ -809,6 +809,48 @@ def salud_servicios(ahora=None):
         problemas.append(f"📡 Sin contacto con Telegram desde hace {mins} min "
                          "(¿sin red o el polling atascado?).")
     return problemas
+
+
+def salud_texto(ahora=None):
+    """Resumen de SALUD DEL BOT (no de hardware) para mostrar en /estado:
+    último latido con Telegram, fallos de IA en cadena y última actividad.
+    Solo lectura del estado que el propio bot ya guarda en la BD."""
+    if ahora is None:
+        ahora = time.time()
+    out = ["🤖 <b>Salud del bot</b>"]
+
+    latido = float(db.estado_get("latido", 0) or 0)
+    if latido:
+        seg = int(ahora - latido)
+        icono = "🟢" if seg <= LATIDO_MAX_S else "🔴"
+        if seg < 90:
+            cuando = f"hace {seg} s"
+        elif seg < 5400:
+            cuando = f"hace {seg // 60} min"
+        else:
+            cuando = f"hace {seg // 3600} h"
+        out.append(f"  {icono} Telegram: último contacto {cuando}")
+    else:
+        out.append("  ⚪ Telegram: aún sin primer latido")
+
+    fallos = int(float(db.estado_get("ia_fallos_seguidos", 0) or 0))
+    icono = "🟢" if fallos == 0 else ("🟡" if fallos < IA_FALLOS_ALERTA else "🔴")
+    if fallos == 0:
+        out.append(f"  {icono} IA: respondiendo bien")
+    else:
+        out.append(f"  {icono} IA: {fallos} fallo(s) seguido(s)")
+
+    act = float(db.estado_get("ultima_actividad", 0) or 0)
+    if act:
+        seg = int(ahora - act)
+        cuando = f"{seg // 60} min" if seg >= 90 else f"{seg} s"
+        out.append(f"  💬 Última actividad tuya: hace {cuando}")
+
+    problemas = salud_servicios(ahora)
+    if problemas:
+        out.append("  ⚠️ <b>Avisos:</b>")
+        out.extend(f"     {p}" for p in problemas)
+    return "\n".join(out)
 
 
 def vigilar_recordatorios(token, cfg, parar):

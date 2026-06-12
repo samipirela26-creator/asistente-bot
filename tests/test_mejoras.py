@@ -346,6 +346,22 @@ class SaludServiciosTest(unittest.TestCase):
         db.estado_set("latido", 0)
         self.assertEqual(bot.salud_servicios(ahora=1e9), [])
 
+    def test_salud_texto_todo_bien(self):
+        db.estado_set("ia_fallos_seguidos", 0)
+        db.estado_set("latido", 1000.0)
+        txt = bot.salud_texto(ahora=1010.0)
+        self.assertIn("Salud del bot", txt)
+        self.assertIn("🟢", txt)            # latido fresco e IA bien
+        self.assertNotIn("Avisos", txt)     # sin problemas
+
+    def test_salud_texto_muestra_avisos(self):
+        db.estado_set("ia_fallos_seguidos", bot.IA_FALLOS_ALERTA)
+        db.estado_set("latido", 1000.0)
+        txt = bot.salud_texto(ahora=1000.0 + bot.LATIDO_MAX_S + 60)
+        self.assertIn("Avisos", txt)
+        self.assertIn("📡", txt)            # sin contacto con Telegram
+        self.assertIn("🧠", txt)            # IA en fallo
+
 
 class SilencioNocturnoTest(unittest.TestCase):
     def test_saca_de_madrugada(self):
