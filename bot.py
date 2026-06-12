@@ -519,6 +519,27 @@ def procesar_simple(texto, tareas, estricto=False):
             if q:
                 return (f"🎉 Bien hecho! Apagué el recordatorio: <i>{esc(q['texto'])}</i>", False)
 
+    # "pausa / yo te aviso / deja de recordarme / silencia" -> callar la
+    # insistencia automatica AL INSTANTE. Antes la IA solo respondía "de acuerdo"
+    # por charla y el recordatorio seguía sonando cada X min (bug real).
+    # Solo actúa si HAY un recordatorio insistente, para no disparar por error.
+    if re.search(
+        r"\b(p[aá]usa\w*|paus[ae]r|det[eé]n\w*|deten\w*|silenci\w*|"
+        r"deja de (?:recordar|insistir|avisar)\w*|"
+        r"para de (?:recordar|insistir|avisar)\w*|"
+        r"ya no me (?:recuerdes|avises|insistas)|"
+        r"yo te aviso|te aviso (?:yo|luego|despu[eé]s))\b", low):
+        rec = db.listar_recordatorios()
+        insistentes = [r for r in rec if r.get("insistir_min")]
+        if insistentes:
+            for r in insistentes:
+                db.silenciar_recordatorio(r["id"])
+            if len(insistentes) == 1:
+                return (f"🔕 Listo, dejo de insistir con <i>{esc(insistentes[0]['texto'])}</i>. "
+                        "Avísame cuando quieras retomarlo.", False)
+            return (f"🔕 Listo, pausé la insistencia de {len(insistentes)} recordatorios. "
+                    "Avísame cuando quieras retomarlos.", False)
+
     if estricto:
         return None  # que decida la IA
 

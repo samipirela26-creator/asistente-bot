@@ -372,6 +372,19 @@ def listar_recordatorios(dueno=None):
             (_d(dueno),))]
 
 
+def silenciar_recordatorio(rec_id, dueno=None):
+    """Calla un recordatorio (lo saca de pendientes) sin borrarlo del historial.
+    Sirve para 'pausa / yo te aviso': corta la insistencia automatica al instante,
+    a diferencia de borrar_recordatorio que lo elimina. Devuelve True si lo halló."""
+    with conn() as c:
+        cur = c.execute(
+            "UPDATE recordatorios SET enviado=1, insistir_veces=0 "
+            "WHERE id=? AND dueno=?",
+            (rec_id, _d(dueno)),
+        )
+        return cur.rowcount > 0
+
+
 def borrar_recordatorio(objetivo, dueno=None):
     """objetivo: numero (posicion en la lista) o texto a buscar."""
     pendientes = listar_recordatorios(dueno)

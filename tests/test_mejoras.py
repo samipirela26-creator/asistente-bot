@@ -363,6 +363,50 @@ class SaludServiciosTest(unittest.TestCase):
         self.assertIn("🧠", txt)            # IA en fallo
 
 
+class PausarInsistenciaTest(unittest.TestCase):
+    """Bug real: el usuario decía 'pausa / yo te aviso', la IA respondía 'de
+    acuerdo' por charla y el recordatorio insistente seguía sonando cada X min.
+    Ahora una frase de pausa lo calla de inmediato."""
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def _crear_insistente(self):
+        return db.add_recordatorio("2030-01-01T10:00", "llevar las imágenes",
+                                   insistir_min=30, insistir_veces=-1)
+
+    def test_pausa_calla_el_insistente(self):
+        self._crear_insistente()
+        resp, _ = bot.procesar_simple("vamos a pausar, yo te aviso", [], estricto=True)
+        self.assertIn("🔕", resp)
+        # Ya no queda como pendiente: no volverá a sonar.
+        self.assertEqual(db.listar_recordatorios(), [])
+
+    def test_otras_frases_de_pausa(self):
+        for frase in ("deja de recordarme eso", "silencia el recordatorio",
+                      "ya no me insistas", "detente con eso"):
+            self._crear_insistente()
+            resp, _ = bot.procesar_simple(frase, [], estricto=True)
+            self.assertIn("🔕", resp, f"falló: {frase!r}")
+            self.assertEqual(db.listar_recordatorios(), [])
+
+    def test_sin_insistente_no_actua(self):
+        # Sin recordatorio insistente, una frase con 'para' no debe falsear.
+        out = bot.procesar_simple("comprar pan para mañana", [], estricto=True)
+        self.assertIsNone(out)  # que decida la IA, no lo capturamos
+
+
 class SilencioNocturnoTest(unittest.TestCase):
     def test_saca_de_madrugada(self):
         import datetime as dt
