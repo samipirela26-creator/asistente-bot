@@ -382,9 +382,6 @@ def atajo(texto, tareas):
     if low in ("fases", "/fases", "mis fases", "todas las fases"):
         return texto_proyectos(completo=True), False
 
-    if low in ("estado", "/estado", "salud", "maquina") or \
-            re.search(r"(como|cómo)\s+esta\s+la\s+(lenovo|maquina|máquina|compu)", low):
-        return sistema.estado_texto() + "\n\n" + salud_texto(), False
 
     if low in ("recordatorios", "/recordatorios", "mis recordatorios"):
         rec = db.listar_recordatorios()
@@ -969,6 +966,17 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
             A.enviar_mensaje(_texto_metricas(), token, chat_id)
         else:
             A.enviar_mensaje("🔒 Ese comando es solo para el administrador.",
+                             token, chat_id)
+        return
+    if low in ("estado", "/estado", "salud", "maquina", "máquina") or \
+            re.search(r"(como|cómo)\s+esta\s+la\s+(lenovo|maquina|máquina|compu)", low):
+        # Diagnostico de la maquina/servidor: SOLO el creador (no es para los
+        # usuarios externos; expone RAM, disco, temperatura, latido del bot...).
+        if str(chat_id) in [str(c) for c in creador(cfg)]:
+            A.enviar_mensaje(sistema.estado_texto() + "\n\n" + salud_texto(),
+                             token, chat_id)
+        else:
+            A.enviar_mensaje("Ese comando está reservado al administrador.",
                              token, chat_id)
         return
     if low in ("usuarios", "/usuarios", "cuantos usuarios", "cuántos usuarios"):
