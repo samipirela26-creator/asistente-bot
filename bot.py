@@ -52,20 +52,19 @@ _LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "3.1"
+VERSION = "3.2"
 NOVEDADES = (
-    "<b>Parte de novedades — versión 3.1</b>\n\n"
+    "<b>Parte de novedades — versión 3.2</b>\n\n"
     "Me permito informarle de las mejoras incorporadas a su servicio:\n"
-    "• <b>Pausa por voz:</b> indíqueme «pausa» o «yo le aviso» y cesaré la "
-    "insistencia de un recordatorio al instante.\n"
-    "• <b>Estado y salud:</b> escriba «estado» y le presentaré el estado de la "
-    "máquina y de mi servicio (último contacto, fallos, actividad).\n"
-    "• <b>Borrado total reversible:</b> «borrar todo» requiere confirmación por "
-    "botones y permanece recuperable durante <b>24 horas</b>.\n"
-    "• <b>Mayor rigor interno:</b> ahora mido la cobertura de las pruebas en "
-    "cada cambio, como red de seguridad.\n\n"
-    "Y, con su permiso, una nota personal: en adelante me dirigiré a usted con "
-    "la formalidad que su tiempo merece. Quedo a su disposición."
+    "• <b>Su nombre:</b> tendré el honor de preguntarle cómo desea que me "
+    "dirija a usted, y en adelante alternaré entre su nombre y un sobrio "
+    "«señor», según convenga.\n"
+    "• <b>Cambiar el trato:</b> en el menú dispone del botón <b>✏️ Mi "
+    "nombre</b> para indicarme un nombre distinto cuando lo desee.\n"
+    "• <b>Estado para todas sus cuentas:</b> el comando «estado» queda "
+    "disponible desde cualquiera de sus cuentas personales, no solo la "
+    "primera.\n\n"
+    "Quedo, como siempre, a su entera disposición."
 )
 
 
@@ -152,6 +151,13 @@ def creador(cfg):
         return [explicito]
     permitidos = chat_ids_permitidos(cfg)
     return permitidos[:1]
+
+
+def es_admin(chat_id, cfg):
+    """¿Quien escribe es el dueño (administrador)? TODAS tus cuentas personales
+    del config lo son, no solo la primera. Distinto de 'creador', que es UNA
+    sola cuenta destino para las alertas tecnicas (para no duplicarlas)."""
+    return str(chat_id) in [str(c) for c in chat_ids_permitidos(cfg)]
 
 
 # --- Horas de silencio ------------------------------------------------------
@@ -257,6 +263,7 @@ def botones_menu():
          {"text": "🎯 Intereses", "callback_data": "menu:intereses"}],
         [{"text": "📖 Lecturas", "callback_data": "menu:lecturas"},
          {"text": "❓ Ayuda", "callback_data": "menu:ayuda"}],
+        [{"text": "✏️ Mi nombre", "callback_data": "menu:nombre"}],
     ]
 
 
@@ -895,8 +902,9 @@ def vigilar_recordatorios(token, cfg, parar):
                     {"text": "⏰ +30 min", "callback_data": f"rec_post:{r['id']}"},
                 ]]
                 for cid in destinos_de(r.get("dueno") or db.DUENO_PRINCIPAL, cfg):
-                    A.enviar_mensaje(f"⏰ <b>Recordatorio:</b> {esc(r['texto'])}",
-                                     token, cid, botones=botones)
+                    A.enviar_mensaje(
+                        f"⏰ <b>Permítame recordarle:</b> {esc(r['texto'])}",
+                        token, cid, botones=botones)
                 db.marcar_enviado(r, silencio=silencio)
             # (sugerencia proactiva desactivada: resultaba molesta)
             # Salud de la maquina y de los SERVICIOS: si algo esta critico,
@@ -905,8 +913,9 @@ def vigilar_recordatorios(token, cfg, parar):
                 problemas = sistema.alertas() + salud_servicios()
                 ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
                 if problemas and time.time() - ult > 3600:
-                    msg = "⚠️ <b>Alerta de la máquina</b>\n" + "\n".join(
-                        f"  {p}" for p in problemas)
+                    msg = ("⚠️ <b>Aviso técnico de la máquina</b>\n"
+                           "Me permito señalarle lo siguiente:\n"
+                           + "\n".join(f"  {p}" for p in problemas))
                     for cid in creador(cfg):  # técnico: solo al creador
                         A.enviar_mensaje(msg, token, cid)
                     db.estado_set("ult_alerta_sistema", time.time())
@@ -949,10 +958,77 @@ def _texto_metricas():
     return "\n".join(lineas)
 
 
+# ------------------------------------------------------- presentacion (nombre)
+# A partir de esta fecha, la PRIMERA vez que alguien (que aun no haya dado su
+# nombre) escriba, Larry se presenta y le pregunta como desea que se dirija a el.
+# Luego alterna entre 'señor <Nombre>' y 'señor' a secas (db.tratamiento).
+ONBOARDING_DESDE = datetime.date(2026, 6, 14)
+
+
+def _clave_esperando_nombre(chat_id):
+    return "esperando_nombre:" + str(chat_id)
+
+
+def _extraer_nombre(texto):
+    """Saca un nombre razonable de lo que escribio el usuario. Acepta 'Samuel',
+    'me llamo Samuel', 'soy Samuel', 'mi nombre es Samuel'. Devuelve None si no
+    parece un nombre (vacio, demasiado largo o un comando)."""
+    t = (texto or "").strip()
+    if not t or t.startswith("/"):
+        return None
+    m = re.match(r"^(?:me\s+llamo|soy|mi\s+nombre\s+es|ll[aá]mame|puedes?\s+"
+                 r"llamarme|dime)\s+(.+)$", t, re.I)
+    if m:
+        t = m.group(1).strip()
+    t = t.strip(" .,:;¡!¿?\"'").strip()
+    if not t or len(t) > 40 or "\n" in t:
+        return None
+    return t
+
+
+def _saludo_presentacion():
+    return (
+        "Antes de proseguir, permítame una cortesía: ¿cómo desea que me dirija "
+        "a usted? Indíqueme su nombre, se lo ruego."
+    )
+
+
+def _onboarding(texto, cfg, token, chat_id):
+    """Pide y registra el nombre del usuario la primera vez. Devuelve True si ya
+    gestiono el mensaje (hay que cortar el flujo); False para seguir normal."""
+    if datetime.date.today() < ONBOARDING_DESDE:
+        return False
+    clave = _clave_esperando_nombre(chat_id)
+    if db.estado_get(clave) == "1":
+        # Estamos esperando su nombre: este mensaje ES la respuesta.
+        nombre = _extraer_nombre(texto)
+        if not nombre:
+            A.enviar_mensaje(
+                "Disculpe, no logré captar su nombre. ¿Cómo desea que me "
+                "dirija a usted?", token, chat_id)
+            return True
+        db.set_nombre(nombre)
+        db.estado_set(clave, "0")
+        A.enviar_mensaje(
+            f"Un placer, señor {esc(nombre)}. Quedo a su entero servicio.",
+            token, chat_id)
+        return True
+    if db.get_nombre() is None:
+        # Aun no se ha presentado: nos presentamos y se lo preguntamos.
+        db.estado_set(clave, "1")
+        A.enviar_mensaje(_saludo_presentacion(), token, chat_id)
+        return True
+    return False
+
+
 # ----------------------------------------------------------- procesar mensaje
 def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
     db.metrica_inc("mensajes")
     tareas = db.cargar_tareas()
+
+    # 0.0) Presentacion: la primera vez, Larry pregunta el nombre del usuario.
+    if _onboarding(texto, cfg, token, chat_id):
+        return
 
     # 0) Atajos con botones (menu minimalista).
     low = texto.strip().lower()
@@ -962,7 +1038,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
         return
     if low in ("metricas", "/metricas", "métricas", "/métricas"):
         # Diagnostico tecnico: solo el creador lo ve.
-        if str(chat_id) in [str(c) for c in creador(cfg)]:
+        if es_admin(chat_id, cfg):
             A.enviar_mensaje(_texto_metricas(), token, chat_id)
         else:
             A.enviar_mensaje("🔒 Ese comando es solo para el administrador.",
@@ -972,7 +1048,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
             re.search(r"(como|cómo)\s+esta\s+la\s+(lenovo|maquina|máquina|compu)", low):
         # Diagnostico de la maquina/servidor: SOLO el creador (no es para los
         # usuarios externos; expone RAM, disco, temperatura, latido del bot...).
-        if str(chat_id) in [str(c) for c in creador(cfg)]:
+        if es_admin(chat_id, cfg):
             A.enviar_mensaje(sistema.estado_texto() + "\n\n" + salud_texto(),
                              token, chat_id)
         else:
@@ -981,7 +1057,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
         return
     if low in ("usuarios", "/usuarios", "cuantos usuarios", "cuántos usuarios"):
         # Diagnostico tecnico: solo el creador lo ve.
-        if str(chat_id) in [str(c) for c in creador(cfg)]:
+        if es_admin(chat_id, cfg):
             u = db.contar_usuarios()
             externos = u["externos"]
             lineas = ["<b>Usuarios con datos en el servidor</b>"]
@@ -1101,7 +1177,8 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
             acciones, frase = gemini_ia.interpretar(
                 texto, tareas, api_key, proyectos=proyectos,
                 historial=historial, extras=extras, cfg=cfg,
-                usar_gemini=time.time() >= pausa)
+                usar_gemini=time.time() >= pausa,
+                trato=db.tratamiento())
             db.metrica_observar("ia", (time.time() - _t0) * 1000)
             db.estado_set("ia_fallos_seguidos", 0)  # respondió: cadena rota
             lineas, cambio, preguntas = ejecutar_acciones(acciones, tareas)
@@ -1155,6 +1232,17 @@ def manejar_boton(cb, cfg, token, chat_id):
             if rid == "proyectos":
                 A.enviar_mensaje(texto_proyectos(), token, chat_id,
                                  botones=botones_proyectos())
+            elif rid == "nombre":
+                # Re-pregunta el nombre: el proximo mensaje sera la respuesta.
+                db.estado_set(_clave_esperando_nombre(chat_id), "1")
+                actual = db.get_nombre()
+                if actual:
+                    A.enviar_mensaje(
+                        f"Actualmente le llamo <b>{esc(actual)}</b>. ¿Cómo "
+                        "desea que me dirija a usted en adelante?",
+                        token, chat_id)
+                else:
+                    A.enviar_mensaje(_saludo_presentacion(), token, chat_id)
             elif rid == "sugerencia":
                 manejar_mensaje(
                     "No tengo nada que hacer ahora, sugiereme algo concreto "
@@ -1274,9 +1362,10 @@ def avisar_conflicto(token, cfg):
         ult = float(db.estado_get("ult_aviso_409", 0) or 0)
         if time.time() - ult < 3600:
             return
-        msg = ("⚠️ <b>Hay otro bot con tu token corriendo</b> (Telegram da 409 "
-               "Conflict). Solo una máquina puede atender a la vez. Apaga el bot "
-               "en la máquina que no debe estar activa.")
+        msg = ("⚠️ <b>Hay otra instancia activa con su mismo identificador</b> "
+               "(Telegram responde 409 Conflict). Solo una máquina puede "
+               "atenderle a la vez; le ruego apagar el bot en la máquina que no "
+               "corresponda.")
         for cid in creador(cfg):
             A.enviar_mensaje(msg, token, cid)
         db.estado_set("ult_aviso_409", time.time())

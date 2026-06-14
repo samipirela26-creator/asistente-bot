@@ -32,6 +32,9 @@ class HandlerBase(unittest.TestCase):
         db.DB_PATH = self.ruta
         db.init_db()
         db.set_dueno(db.DUENO_PRINCIPAL)
+        # Usuario ya presentado: evita que el onboarding (preguntar el nombre)
+        # intercepte el primer mensaje de estos tests de ruteo.
+        db.set_nombre("Samuel")
 
         # Espia de envios: cada llamada guarda (texto, chat_id, botones).
         self.enviados = []

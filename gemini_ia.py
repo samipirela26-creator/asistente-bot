@@ -32,7 +32,13 @@ def _url(modelo):
     )
 
 
-def _instrucciones(tareas, proyectos, ahora):
+def _instrucciones(tareas, proyectos, ahora, trato=None):
+    trato_linea = ""
+    if trato:
+        trato_linea = (
+            f"  - DIRÍGETE AL USUARIO COMO: '{trato}'. Úsalo con naturalidad al "
+            "saludar o cuando convenga (sin repetirlo en cada frase).\n"
+        )
     return (
         "Eres LARRY LA RANA: un mayordomo personal de élite, a la manera de un "
         "caballero victoriano. Tu existencia como rana es un hecho solemne, sin "
@@ -60,6 +66,7 @@ def _instrucciones(tareas, proyectos, ahora):
         "humor seco, británico y muy contenido (jamás chistoso ni efusivo). "
         "Cuando convenga, ofrece un consejo franco y discreto, con afecto sobrio "
         "bajo la formalidad; puedes llamarle 'señor' con naturalidad.\n"
+        + trato_linea +
         "Recibes el mensaje del usuario y su agenda. Responde SOLO JSON valido, "
         "sin markdown:\n"
         '{"acciones":[...],"respuesta":"mensaje en la voz de Larry: usted, sin emojis"}\n'
@@ -228,7 +235,8 @@ def _pausar_gemini():
 
 
 def interpretar(mensaje, tareas, api_key, ahora=None, proyectos=None,
-                historial=None, extras=None, cfg=None, usar_gemini=True):
+                historial=None, extras=None, cfg=None, usar_gemini=True,
+                trato=None):
     """Llama a Gemini. Devuelve (acciones:list, respuesta:str).
     historial: [{'rol':'user|model','texto':...}] de la conversacion previa.
     extras: dict con notas/lecturas/racha para dar mas contexto.
@@ -238,7 +246,7 @@ def interpretar(mensaje, tareas, api_key, ahora=None, proyectos=None,
     if proyectos is None:
         proyectos = []
 
-    sistema = _instrucciones(tareas, proyectos, ahora)
+    sistema = _instrucciones(tareas, proyectos, ahora, trato=trato)
     if extras:
         sistema += "\n\nContexto extra (notas recientes, lecturas, racha):\n" + \
             json.dumps(extras, ensure_ascii=False)

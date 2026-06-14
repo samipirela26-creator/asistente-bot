@@ -4,6 +4,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/) y
 versionado [SemVer](https://semver.org/lang/es/). El bot es stdlib pura en
 runtime; `ruff`/`mypy` son solo de desarrollo/CI.
 
+## [3.2.0] — 2026-06-14
+
+### Añadido
+- **Trato personalizado**: Larry pregunta al usuario cómo desea que se dirija a
+  él y alterna entre «señor <Nombre>» y «señor» a secas en cada respuesta
+  (`db.get_nombre`/`set_nombre`/`tratamiento`, inyectado en el prompt de la IA).
+  Onboarding una sola vez, controlado por `ONBOARDING_DESDE`.
+- **Botón ✏️ Mi nombre** en el menú para cambiar el nombre cuando se quiera.
+
+### Cambiado
+- **Permiso de administrador**: los comandos técnicos (`estado`, `metricas`,
+  `usuarios`) los reconoce ahora `es_admin()` para TODAS las cuentas personales
+  del config, no solo la primera. `creador()` sigue siendo la cuenta única
+  destino de las alertas técnicas.
+
 ## [3.0.0] — 2026-06-12
 
 Hito de calidad de ingeniería: el bot pasa de «funciona» a «mantenible y

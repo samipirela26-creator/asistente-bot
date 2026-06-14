@@ -745,6 +745,43 @@ def borrar_interes(objetivo, dueno=None):
     return quitado
 
 
+# ------------------------------------------------------ nombre del usuario
+def _clave_nombre(dueno=None):
+    return "nombre:" + _d(dueno)
+
+
+def _clave_trato(dueno=None):
+    return "trato_n:" + _d(dueno)
+
+
+def get_nombre(dueno=None):
+    """Nombre con el que el usuario pidio que se le llame, o None si aun no lo
+    ha indicado."""
+    n = estado_get(_clave_nombre(dueno))
+    return n or None
+
+
+def set_nombre(nombre, dueno=None):
+    """Guarda el nombre del usuario (recortado a 40 caracteres por prudencia)."""
+    estado_set(_clave_nombre(dueno), (nombre or "").strip()[:40])
+
+
+def tratamiento(dueno=None, avanzar=True):
+    """Forma de dirigirse al usuario. Alterna, en llamadas sucesivas, entre
+    'señor <Nombre>' y 'señor' a secas (varia el trato para que suene mas
+    natural y elegante). Si aun no hay nombre, devuelve siempre 'señor'.
+
+    avanzar=False solo consulta el trato actual sin mover el turno (util para
+    tests o para mostrarlo sin gastar el ciclo)."""
+    nombre = get_nombre(dueno)
+    if not nombre:
+        return "señor"
+    n = int(estado_get(_clave_trato(dueno), 0) or 0)
+    if avanzar:
+        estado_set(_clave_trato(dueno), n + 1)
+    return f"señor {nombre}" if n % 2 == 0 else "señor"
+
+
 # --------------------------------------------------- recordatorios por id
 def posponer_recordatorio(rid, minutos=30):
     nuevo = (datetime.datetime.now()

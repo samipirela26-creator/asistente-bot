@@ -562,5 +562,84 @@ class SilencioNocturnoTest(unittest.TestCase):
         self.assertEqual(s.date(), dt.date(2030, 1, 2))
 
 
+class NombreYTratamientoTest(unittest.TestCase):
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+        db.set_dueno(db.DUENO_PRINCIPAL)
+
+    def tearDown(self):
+        db.set_dueno(db.DUENO_PRINCIPAL)
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def test_sin_nombre_siempre_senor(self):
+        self.assertIsNone(db.get_nombre())
+        self.assertEqual(db.tratamiento(), "señor")
+        self.assertEqual(db.tratamiento(), "señor")
+
+    def test_alterna_nombre_y_senor(self):
+        db.set_nombre("Samuel")
+        self.assertEqual(db.get_nombre(), "Samuel")
+        self.assertEqual(db.tratamiento(), "señor Samuel")
+        self.assertEqual(db.tratamiento(), "señor")
+        self.assertEqual(db.tratamiento(), "señor Samuel")
+
+    def test_avanzar_false_no_mueve_el_turno(self):
+        db.set_nombre("Samuel")
+        self.assertEqual(db.tratamiento(avanzar=False), "señor Samuel")
+        self.assertEqual(db.tratamiento(avanzar=False), "señor Samuel")
+
+    def test_nombre_aislado_por_dueno(self):
+        db.set_nombre("Samuel", dueno=db.DUENO_PRINCIPAL)
+        self.assertIsNone(db.get_nombre(dueno="otro"))
+        self.assertEqual(db.tratamiento(dueno="otro"), "señor")
+
+    def test_extraer_nombre(self):
+        self.assertEqual(bot._extraer_nombre("Samuel"), "Samuel")
+        self.assertEqual(bot._extraer_nombre("me llamo Samuel"), "Samuel")
+        self.assertEqual(bot._extraer_nombre("soy Samuel."), "Samuel")
+        self.assertEqual(bot._extraer_nombre("mi nombre es Samuel"), "Samuel")
+        self.assertIsNone(bot._extraer_nombre(""))
+        self.assertIsNone(bot._extraer_nombre("/menu"))
+        self.assertIsNone(bot._extraer_nombre("x" * 41))
+
+    def test_onboarding_pregunta_y_guarda(self):
+        enviados = []
+        orig_enviar = bot.A.enviar_mensaje
+        bot.A.enviar_mensaje = lambda txt, *a, **k: enviados.append(txt)
+        orig_desde = bot.ONBOARDING_DESDE
+        bot.ONBOARDING_DESDE = datetime.date(2000, 1, 1)
+        try:
+            cid = "555"
+            # 1er mensaje: se presenta y pregunta el nombre.
+            self.assertTrue(bot._onboarding("hola", {}, "tok", cid))
+            self.assertIn("nombre", enviados[-1].lower())
+            self.assertIsNone(db.get_nombre())
+            # 2do mensaje: lo captura y lo guarda.
+            self.assertTrue(bot._onboarding("Samuel", {}, "tok", cid))
+            self.assertEqual(db.get_nombre(), "Samuel")
+            # 3er mensaje: ya no intercepta (sigue el flujo normal).
+            self.assertFalse(bot._onboarding("lista", {}, "tok", cid))
+        finally:
+            bot.A.enviar_mensaje = orig_enviar
+            bot.ONBOARDING_DESDE = orig_desde
+
+    def test_onboarding_no_arranca_antes_de_la_fecha(self):
+        orig_desde = bot.ONBOARDING_DESDE
+        bot.ONBOARDING_DESDE = datetime.date(2999, 1, 1)
+        try:
+            self.assertFalse(bot._onboarding("hola", {}, "tok", "999"))
+        finally:
+            bot.ONBOARDING_DESDE = orig_desde
+
+
 if __name__ == "__main__":
     unittest.main()
