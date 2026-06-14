@@ -1065,8 +1065,13 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
             lineas.append("  • Sus cuentas personales (principal): "
                           + ("sí" if u["tiene_principal"] else "no"))
             lineas.append(f"  • Usuarios externos: <b>{len(externos)}</b>")
-            if externos:
-                lineas.append("    " + ", ".join(esc(d) for d in externos))
+            for d in externos:
+                nom = db.get_nombre(dueno=d)
+                etiqueta = f"<b>{esc(nom)}</b> ({esc(d)})" if nom else esc(d)
+                lineas.append(f"    • {etiqueta}")
+            mi_nombre = db.get_nombre(dueno=db.DUENO_PRINCIPAL)
+            if mi_nombre:
+                lineas.append(f"  • Usted figura como: <b>{esc(mi_nombre)}</b>")
             A.enviar_mensaje("\n".join(lineas), token, chat_id)
         else:
             A.enviar_mensaje("Ese comando está reservado al administrador.",
