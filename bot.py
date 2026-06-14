@@ -979,6 +979,35 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
         A.enviar_mensaje(texto_intereses(), token, chat_id)
         return
 
+    # 0.4) Borron total recuperable. Por seguridad NUNCA se borra desde texto:
+    #      el bot manda SIEMPRE a confirmar con los botones (evita un borrado
+    #      accidental por una frase suelta). Se puede deshacer durante 24h.
+    if re.search(r"^/?(?:borra(?:r)?|elimina(?:r)?|limpia(?:r)?)\s+todo(?:s)?\b",
+                 low) or low in ("/borrartodo", "borrón total", "borron total"):
+        A.enviar_mensaje(
+            "⚠️ <b>¿Seguro que quieres borrar TODO?</b>\n"
+            "Se eliminarán tus recordatorios, tareas, eventos, notas, proyectos, "
+            "fases y lecturas.\n\n"
+            "🛟 Tranquilo: queda guardado <b>24 horas</b> por si te arrepientes.\n"
+            "👇 Confírmalo con los botones (no se borra escribiéndolo):",
+            token, chat_id, botones=[[
+                {"text": "🗑 Sí, borrar TODO", "callback_data": "borrar_all:si"},
+                {"text": "✖️ Cancelar", "callback_data": "borrar_all:no"},
+            ]])
+        return
+    if low in ("recuperar", "/recuperar", "recupera todo", "recuperar todo",
+               "deshacer", "restaurar", "restaurar todo", "deshacer borrado"):
+        n = db.recuperar_todo()
+        if n:
+            A.enviar_mensaje(
+                f"↩️ <b>Restaurado.</b> Recuperé {n} elemento(s). Todo vuelve a su sitio.",
+                token, chat_id)
+        else:
+            A.enviar_mensaje(
+                "🤷 No hay nada que recuperar (no borraste nada en las últimas 24h).",
+                token, chat_id)
+        return
+
     # 0.5) Busqueda web fiable: "busca X" / "investiga X"
     m = re.match(r"^/?(?:busca(?:me|r)?|investiga)\s+(.+)$", texto.strip(), re.I)
     if m:
@@ -1145,6 +1174,25 @@ def manejar_boton(cb, cfg, token, chat_id):
         elif accion == "rec_post":
             nuevo = db.posponer_recordatorio(int(rid), 30)
             aviso = f"⏰ Pospuesto a las <b>{nuevo.split('T')[1]}</b>"
+        elif accion == "borrar_all":
+            if rid == "si":
+                total, pid = db.borrar_todo()
+                if total:
+                    aviso = (f"🗑 <b>Borrado.</b> Eliminé {total} elemento(s).\n"
+                             "🛟 Tienes <b>24 horas</b> para deshacerlo.")
+                    botones = [[{"text": "↩️ Deshacer",
+                                 "callback_data": f"recuperar_all:{pid}"}]]
+                else:
+                    aviso = "🤷 No tenías nada que borrar."
+            else:
+                aviso = "👍 Cancelado. No borré nada."
+        elif accion == "recuperar_all":
+            n = db.recuperar_todo(papelera_id=int(rid))
+            if n:
+                aviso = f"↩️ <b>Restaurado.</b> Recuperé {n} elemento(s)."
+            else:
+                aviso = ("🤷 Ya no se puede deshacer (pasaron 24h o ya lo "
+                         "restauraste).")
         elif accion == "ins_set":
             # rid trae "id:intervalo:veces" (cuántas veces insistir).
             rec_id, inter, veces = (int(x) for x in rid.split(":"))

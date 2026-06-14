@@ -250,6 +250,12 @@ def init_db():
                 clave TEXT PRIMARY KEY,
                 valor TEXT
             );
+            CREATE TABLE IF NOT EXISTS papelera (
+                id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                dueno  TEXT NOT NULL,
+                creado TEXT NOT NULL,   -- ISO: snapshot de un 'borrar todo'
+                datos  TEXT NOT NULL    -- JSON con las filas borradas
+            );
             """
         )
         # Esquema VERSIONADO: las migraciones se aplican en orden y una sola vez.
@@ -383,6 +389,87 @@ def silenciar_recordatorio(rec_id, dueno=None):
             (rec_id, _d(dueno)),
         )
         return cur.rowcount > 0
+
+
+# --------------------------------------------------- borron total recuperable
+# Tablas con una columna 'dueno' que entran al borron total. 'fases' NO tiene
+# dueno (cuelga de un proyecto), por eso se trata aparte vía proyecto_id.
+_TABLAS_USUARIO = ("pendientes", "eventos", "recordatorios",
+                   "proyectos", "notas", "lecturas")
+PAPELERA_HORAS = 24   # cuanto tiempo se puede deshacer un 'borrar todo'
+
+
+def _purgar_papelera(c, ahora=None):
+    """Borra snapshots de la papelera mas viejos que PAPELERA_HORAS."""
+    ahora = ahora or datetime.datetime.now()
+    limite = (ahora - datetime.timedelta(hours=PAPELERA_HORAS)).isoformat()
+    c.execute("DELETE FROM papelera WHERE creado < ?", (limite,))
+
+
+def borrar_todo(dueno=None, ahora=None):
+    """Borra TODOS los datos del dueno (tareas, eventos, recordatorios, notas,
+    proyectos, fases, lecturas) PERO guarda antes un snapshot en 'papelera' para
+    poder deshacer durante PAPELERA_HORAS. Devuelve (total_borrado, papelera_id);
+    (0, None) si no habia nada que borrar."""
+    d = _d(dueno)
+    ahora = ahora or datetime.datetime.now()
+    snapshot, total = {}, 0
+    with conn() as c:
+        for t in _TABLAS_USUARIO:
+            filas = [dict(r) for r in c.execute(
+                f"SELECT * FROM {t} WHERE dueno=?", (d,))]
+            snapshot[t] = filas
+            total += len(filas)
+        snapshot["fases"] = [dict(r) for r in c.execute(
+            "SELECT f.* FROM fases f JOIN proyectos p ON f.proyecto_id=p.id "
+            "WHERE p.dueno=?", (d,))]
+        total += len(snapshot["fases"])
+        if total == 0:
+            return (0, None)
+        cur = c.execute(
+            "INSERT INTO papelera (dueno, creado, datos) VALUES (?, ?, ?)",
+            (d, ahora.isoformat(timespec="seconds"),
+             json.dumps(snapshot, ensure_ascii=False)))
+        pid = cur.lastrowid
+        # Fases primero (cuelgan de proyectos), luego el resto.
+        c.execute("DELETE FROM fases WHERE proyecto_id IN "
+                  "(SELECT id FROM proyectos WHERE dueno=?)", (d,))
+        for t in _TABLAS_USUARIO:
+            c.execute(f"DELETE FROM {t} WHERE dueno=?", (d,))
+        _purgar_papelera(c, ahora)
+        return (total, pid)
+
+
+def recuperar_todo(dueno=None, papelera_id=None, ahora=None):
+    """Restaura el ultimo borron del dueno si esta dentro de PAPELERA_HORAS
+    (o el snapshot 'papelera_id' concreto). Devuelve el total restaurado, o None
+    si no hay nada recuperable. Tras restaurar, consume el snapshot."""
+    d = _d(dueno)
+    ahora = ahora or datetime.datetime.now()
+    limite = (ahora - datetime.timedelta(hours=PAPELERA_HORAS)).isoformat()
+    with conn() as c:
+        if papelera_id is not None:
+            row = c.execute(
+                "SELECT * FROM papelera WHERE id=? AND dueno=? AND creado>=?",
+                (papelera_id, d, limite)).fetchone()
+        else:
+            row = c.execute(
+                "SELECT * FROM papelera WHERE dueno=? AND creado>=? "
+                "ORDER BY id DESC LIMIT 1", (d, limite)).fetchone()
+        if not row:
+            return None
+        snapshot = json.loads(row["datos"])
+        total = 0
+        for t in list(_TABLAS_USUARIO) + ["fases"]:
+            for fila in snapshot.get(t, []):
+                cols = list(fila.keys())
+                marcas = ",".join("?" for _ in cols)
+                c.execute(
+                    f"INSERT INTO {t} ({','.join(cols)}) VALUES ({marcas})",
+                    [fila[k] for k in cols])
+                total += 1
+        c.execute("DELETE FROM papelera WHERE id=?", (row["id"],))
+        return total
 
 
 def borrar_recordatorio(objetivo, dueno=None):

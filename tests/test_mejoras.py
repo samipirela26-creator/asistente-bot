@@ -11,6 +11,7 @@ Ejecutar desde la carpeta asistente/:
 import os
 import sys
 import json
+import datetime
 import tempfile
 import unittest
 
@@ -405,6 +406,67 @@ class PausarInsistenciaTest(unittest.TestCase):
         # Sin recordatorio insistente, una frase con 'para' no debe falsear.
         out = bot.procesar_simple("comprar pan para mañana", [], estricto=True)
         self.assertIsNone(out)  # que decida la IA, no lo capturamos
+
+
+class BorronTotalTest(unittest.TestCase):
+    """Borrar TODO debe ser recuperable durante 24h (papelera)."""
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def _sembrar(self):
+        db.add_recordatorio("2030-01-01T10:00", "regar plantas")
+        db.add_nota("idea para el horno")
+        pid = db.add_proyecto("pizzeria", "horno de barro")
+        db.add_fase(pid, "comprar ladrillos")
+
+    def test_borra_y_recupera_todo(self):
+        self._sembrar()
+        total, papid = db.borrar_todo()
+        self.assertGreaterEqual(total, 4)        # rec + nota + proyecto + fase
+        self.assertIsNotNone(papid)
+        self.assertEqual(db.listar_recordatorios(), [])
+        self.assertEqual(db.buscar_notas(), [])
+        self.assertEqual(db.cargar_proyectos(), [])
+        # Deshacer dentro de 24h restaura todo.
+        n = db.recuperar_todo(papelera_id=papid)
+        self.assertEqual(n, total)
+        self.assertEqual(len(db.listar_recordatorios()), 1)
+        self.assertEqual(len(db.buscar_notas()), 1)
+        proys = db.cargar_proyectos()
+        self.assertEqual(len(proys), 1)
+        self.assertEqual(len(proys[0]["fases"]), 1)   # la fase volvió a su proyecto
+
+    def test_no_recupera_pasadas_24h(self):
+        self._sembrar()
+        viejo = datetime.datetime.now() - datetime.timedelta(hours=25)
+        total, _ = db.borrar_todo(ahora=viejo)
+        self.assertGreaterEqual(total, 1)
+        self.assertIsNone(db.recuperar_todo())   # ya expiró
+
+    def test_borrar_vacio_no_crea_papelera(self):
+        self.assertEqual(db.borrar_todo(), (0, None))
+
+    def test_aislado_por_dueno(self):
+        with db.como_dueno("ana"):
+            db.add_nota("nota de ana")
+        with db.como_dueno("beto"):
+            db.add_nota("nota de beto")
+            total, _ = db.borrar_todo()
+        self.assertEqual(total, 1)               # solo borró lo de beto
+        with db.como_dueno("ana"):
+            self.assertEqual(len(db.buscar_notas()), 1)
 
 
 class SilencioNocturnoTest(unittest.TestCase):
