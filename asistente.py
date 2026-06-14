@@ -251,6 +251,21 @@ def parse_fecha(texto):
         return None
 
 
+def novedades_para_resumen(db):
+    """Devuelve el changelog (texto) si hay una version nueva que el usuario aun
+    no ha visto en su parte matutino, y la marca como vista para no repetirla.
+    Si no hay nada nuevo, devuelve cadena vacia. El bot deja 'novedades_texto' y
+    'novedades_version' en la BD al arrancar (Larry anuncia sus propios cambios)."""
+    nov_ver = db.estado_get("novedades_version")
+    nov_txt = db.estado_get("novedades_texto")
+    if not nov_ver or not nov_txt:
+        return ""
+    if db.estado_get("novedades_matutinas_vistas") == nov_ver:
+        return ""
+    db.estado_set("novedades_matutinas_vistas", nov_ver)
+    return nov_txt
+
+
 def construir_resumen(tareas, hoy):
     eventos = tareas.get("eventos", [])
     pendientes = tareas.get("pendientes", [])
@@ -268,34 +283,35 @@ def construir_resumen(tareas, hoy):
             proximos.append((dias, ev))
     proximos.sort(key=lambda x: x[0])
 
+    # Voz de Larry: parte matutino sobrio, sin emojis, trato de usted.
     lineas = []
-    lineas.append(f"☀️ <b>¡Buenos días!</b>\n📆 {fecha_legible(hoy)}")
+    lineas.append(f"<b>Buenos días.</b> Su parte del día.\n{fecha_legible(hoy)}")
     lineas.append("")
 
     if hoy_eventos:
-        lineas.append("📅 <b>Hoy:</b>")
+        lineas.append("<b>Hoy:</b>")
         for ev in hoy_eventos:
             hora = ev.get("hora", "")
-            prefijo = f"🕐 {esc(hora)} · " if hora else "• "
+            prefijo = f"<b>{esc(hora)}</b> · " if hora else "• "
             lineas.append(f"  {prefijo}{esc(ev.get('titulo', ''))}")
     else:
-        lineas.append("📅 <b>Hoy:</b> sin eventos agendados ✨")
+        lineas.append("<b>Hoy:</b> sin eventos agendados.")
     lineas.append("")
 
     if pendientes:
-        lineas.append("📝 <b>Pendientes:</b>")
+        lineas.append("<b>Pendientes:</b>")
         for p in pendientes:
             lineas.append(f"  • {esc(p)}")
         lineas.append("")
 
     if proximos:
-        lineas.append("🔜 <b>Esta semana:</b>")
+        lineas.append("<b>Esta semana:</b>")
         for dias, ev in proximos:
             cuando = "mañana" if dias == 1 else f"en {dias} días"
             lineas.append(f"  • {esc(ev.get('titulo', ''))} ({cuando})")
         lineas.append("")
 
-    lineas.append("💪 ¡Que tengas un gran día!")
+    lineas.append("Quedo a su disposición.")
     return "\n".join(lineas)
 
 
@@ -373,11 +389,11 @@ def main():
 
     destinos = todos_los_chats(cfg) or [chat_id]
     if accion == "resumen":
+        import db as _db
         msg = None
         api_key = cfg.get("gemini_api_key", "").strip()
         if api_key:
             try:
-                import db as _db
                 import gemini_ia
                 msg = gemini_ia.redactar_resumen(
                     tareas, _db.cargar_proyectos(solo_pendientes=True),
@@ -387,6 +403,14 @@ def main():
                 log.warning("Resumen con IA fallo, uso el clasico: %s", e)
         if not msg:
             msg = construir_resumen(tareas, hoy)
+        # Larry anuncia SUS PROPIOS cambios: si hay una version nueva que el
+        # usuario aun no ha visto en el parte matutino, la anexa una sola vez.
+        try:
+            nov = novedades_para_resumen(_db)
+            if nov:
+                msg += "\n\n" + nov
+        except Exception as e:
+            log.warning("No pude anexar novedades al resumen: %s", e)
         for cid in destinos:
             enviar_mensaje(msg, token, cid)
         print(f"Resumen enviado a {len(destinos)} cuenta(s).")

@@ -469,6 +469,41 @@ class BorronTotalTest(unittest.TestCase):
             self.assertEqual(len(db.buscar_notas()), 1)
 
 
+class NovedadesMatutinasTest(unittest.TestCase):
+    """El parte matutino anexa el changelog UNA sola vez por version."""
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+        db.estado_set("novedades_version", "3.1")
+        db.estado_set("novedades_texto", "Parte de novedades 3.1")
+
+    def tearDown(self):
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def test_anexa_una_sola_vez(self):
+        self.assertEqual(asistente.novedades_para_resumen(db), "Parte de novedades 3.1")
+        # La segunda mañana ya no repite (misma version).
+        self.assertEqual(asistente.novedades_para_resumen(db), "")
+
+    def test_nueva_version_vuelve_a_anunciar(self):
+        asistente.novedades_para_resumen(db)               # ve la 3.1
+        db.estado_set("novedades_version", "3.2")
+        db.estado_set("novedades_texto", "Parte 3.2")
+        self.assertEqual(asistente.novedades_para_resumen(db), "Parte 3.2")
+
+    def test_sin_novedades_no_anexa(self):
+        db.estado_set("novedades_version", "")
+        self.assertEqual(asistente.novedades_para_resumen(db), "")
+
+
 class SilencioNocturnoTest(unittest.TestCase):
     def test_saca_de_madrugada(self):
         import datetime as dt

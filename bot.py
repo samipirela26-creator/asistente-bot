@@ -52,20 +52,20 @@ _LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "3.0"
+VERSION = "3.1"
 NOVEDADES = (
-    "🚀 <b>Bot actualizado · v3.0</b>\n\n"
-    "• 🔔 <b>Insistencia a tu medida:</b> cuando creas un recordatorio con "
-    "aviso repetido, te pregunto cuántas veces insistir (o «🔥 súper "
-    "insistente» hasta que marques Hecho).\n"
-    "• 🌙 <b>Nada de avisos de madrugada:</b> las re-insistencias se guardan "
-    "para la mañana; el resumen matutino y el nocturno siguen igual.\n"
-    "• 🛡️ <b>Más robusto:</b> si Telegram o la red fallan, ya no me caigo; "
-    "reintento con cabeza.\n"
-    "• 📊 <b>Métricas:</b> escribe <i>/metricas</i> (solo tú) para ver uso y "
-    "salud.\n\n"
-    "Por dentro: tests del corazón del bot, lint en CI, esquema de datos "
-    "versionado y documentación técnica. 💪"
+    "<b>Parte de novedades — versión 3.1</b>\n\n"
+    "Me permito informarle de las mejoras incorporadas a su servicio:\n"
+    "• <b>Pausa por voz:</b> indíqueme «pausa» o «yo le aviso» y cesaré la "
+    "insistencia de un recordatorio al instante.\n"
+    "• <b>Estado y salud:</b> escriba «estado» y le presentaré el estado de la "
+    "máquina y de mi servicio (último contacto, fallos, actividad).\n"
+    "• <b>Borrado total reversible:</b> «borrar todo» requiere confirmación por "
+    "botones y permanece recuperable durante <b>24 horas</b>.\n"
+    "• <b>Mayor rigor interno:</b> ahora mido la cobertura de las pruebas en "
+    "cada cambio, como red de seguridad.\n\n"
+    "Y, con su permiso, una nota personal: en adelante me dirigiré a usted con "
+    "la formalidad que su tiempo merece. Quedo a su disposición."
 )
 
 
@@ -1279,6 +1279,10 @@ def main():
         return
     log.info("Cuentas permitidas: %s", ", ".join(chat_ids))
     notificar_actualizacion(token, creador(cfg))  # novedades SOLO al creador
+    # Deja el changelog accesible para el parte matutino (proceso aparte): el
+    # resumen lo anexará UNA vez por version (Larry anuncia sus propios cambios).
+    db.estado_set("novedades_texto", NOVEDADES)
+    db.estado_set("novedades_version", VERSION)
 
     parar = threading.Event()
     hilo = threading.Thread(target=vigilar_recordatorios, args=(token, cfg, parar), daemon=True)
