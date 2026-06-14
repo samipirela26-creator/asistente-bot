@@ -971,6 +971,23 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
             A.enviar_mensaje("🔒 Ese comando es solo para el administrador.",
                              token, chat_id)
         return
+    if low in ("usuarios", "/usuarios", "cuantos usuarios", "cuántos usuarios"):
+        # Diagnostico tecnico: solo el creador lo ve.
+        if str(chat_id) in [str(c) for c in creador(cfg)]:
+            u = db.contar_usuarios()
+            externos = u["externos"]
+            lineas = ["<b>Usuarios con datos en el servidor</b>"]
+            lineas.append(f"  • Total de espacios: <b>{u['total']}</b>")
+            lineas.append("  • Sus cuentas personales (principal): "
+                          + ("sí" if u["tiene_principal"] else "no"))
+            lineas.append(f"  • Usuarios externos: <b>{len(externos)}</b>")
+            if externos:
+                lineas.append("    " + ", ".join(esc(d) for d in externos))
+            A.enviar_mensaje("\n".join(lineas), token, chat_id)
+        else:
+            A.enviar_mensaje("Ese comando está reservado al administrador.",
+                             token, chat_id)
+        return
     if low in ("proyectos", "/proyectos", "mis proyectos"):
         A.enviar_mensaje(texto_proyectos(), token, chat_id,
                          botones=botones_proyectos())

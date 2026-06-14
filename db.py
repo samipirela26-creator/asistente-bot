@@ -406,6 +406,28 @@ def _purgar_papelera(c, ahora=None):
     c.execute("DELETE FROM papelera WHERE creado < ?", (limite,))
 
 
+def contar_usuarios():
+    """Cuenta cuantos 'dueños' distintos tienen datos en la BD. El dueño
+    'principal' eres TÚ (tus cuentas personales comparten ese espacio); el resto
+    son usuarios externos con datos aislados. Devuelve:
+        {'total': N, 'externos': [dueno, ...], 'tiene_principal': bool}"""
+    duenos = set()
+    with conn() as c:
+        for t in _TABLAS_USUARIO + ("actividad",):
+            try:
+                for r in c.execute(f"SELECT DISTINCT dueno FROM {t}"):
+                    if r[0]:
+                        duenos.add(r[0])
+            except sqlite3.Error:
+                pass
+    externos = sorted(d for d in duenos if d != DUENO_PRINCIPAL)
+    return {
+        "total": len(duenos),
+        "externos": externos,
+        "tiene_principal": DUENO_PRINCIPAL in duenos,
+    }
+
+
 def borrar_todo(dueno=None, ahora=None):
     """Borra TODOS los datos del dueno (tareas, eventos, recordatorios, notas,
     proyectos, fases, lecturas) PERO guarda antes un snapshot en 'papelera' para

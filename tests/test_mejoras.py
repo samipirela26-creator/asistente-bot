@@ -469,6 +469,40 @@ class BorronTotalTest(unittest.TestCase):
             self.assertEqual(len(db.buscar_notas()), 1)
 
 
+class ContarUsuariosTest(unittest.TestCase):
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self._orig
+        for suf in ("", "-wal", "-shm"):
+            try:
+                os.remove(self.ruta + suf)
+            except OSError:
+                pass
+
+    def test_cuenta_principal_y_externos(self):
+        with db.como_dueno(db.DUENO_PRINCIPAL):
+            db.add_nota("mía")
+        with db.como_dueno("111"):
+            db.add_nota("de un amigo")
+        with db.como_dueno("222"):
+            db.add_recordatorio("2030-01-01T10:00", "x")
+        u = db.contar_usuarios()
+        self.assertEqual(u["total"], 3)
+        self.assertTrue(u["tiene_principal"])
+        self.assertEqual(u["externos"], ["111", "222"])
+
+    def test_bd_vacia(self):
+        u = db.contar_usuarios()
+        self.assertEqual(u["total"], 0)
+        self.assertEqual(u["externos"], [])
+
+
 class NovedadesMatutinasTest(unittest.TestCase):
     """El parte matutino anexa el changelog UNA sola vez por version."""
     def setUp(self):
