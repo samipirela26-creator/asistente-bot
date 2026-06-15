@@ -52,21 +52,14 @@ _LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "3.3"
+VERSION = "3.4"
 NOVEDADES = (
-    "<b>Parte de novedades — versión 3.3</b>\n\n"
-    "Me permito informarle de las mejoras incorporadas a su servicio:\n"
-    "• <b>Tarjeta de su progreso:</b> en el menú hallará el botón <b>📊 Mi "
-    "progreso</b>. Le compondré, cuando guste, una lámina con el avance "
-    "global y el de cada proyecto.\n"
-    "• <b>Lámina de los domingos:</b> cada domingo por la mañana le haré "
-    "llegar esa lámina con el progreso de la semana, sin que tenga que "
-    "pedirla.\n"
-    "• <b>Su avance del día:</b> al cerrar la jornada le preguntaré si "
-    "avanzó en algo no anotado; lo que me cuente lo sumaré a su progreso.\n"
-    "• <b>Una palabra cada día:</b> anexaré a sus partes de la mañana y de "
-    "la noche un versículo sobre constancia y perseverancia, escogido por "
-    "la casa.\n\n"
+    "<b>Parte de novedades — versión 3.4</b>\n\n"
+    "Me permito informarle de la mejora incorporada a su servicio:\n"
+    "• <b>Notas de voz:</b> ahora atiendo también sus audios. Envíeme una "
+    "nota de voz y la transcribiré para proceder igual que si la hubiera "
+    "escrito. Le confirmaré antes lo que entendí, por si conviene "
+    "corregir.\n\n"
     "Quedo, como siempre, a su entera disposición."
 )
 
@@ -1058,6 +1051,50 @@ def _capturar_progreso(texto, token, chat_id):
     return True
 
 
+# ------------------------------------------------------------- notas de voz
+def manejar_voz(msg, cfg, token, chat_id):
+    """Larry SOLO entiende los audios: los transcribe a texto y los procesa
+    como si el usuario los hubiera escrito. Motor: Gemini (cero carga local,
+    pensado para los limites de la Lenovo). Tolerante a fallos: si no hay clave,
+    el audio es muy grande o la transcripcion falla, avisa con cortesia y corta."""
+    db.metrica_inc("audios")
+    api_key = cfg.get("gemini_api_key", "").strip()
+    if not (gemini_ia and api_key):
+        A.enviar_mensaje(
+            "Disculpe, señor; de momento no puedo interpretar notas de voz. "
+            "Si me lo escribe, procedo de inmediato.", token, chat_id)
+        return
+
+    voz = msg.get("voice") or msg.get("audio") or {}
+    file_id = voz.get("file_id")
+    mime = voz.get("mime_type") or "audio/ogg"
+    if not file_id:
+        return
+
+    audio = A.descargar_archivo(file_id, token)
+    if not audio:
+        A.enviar_mensaje(
+            "No he podido recuperar su audio, señor. ¿Sería tan amable de "
+            "repetirlo o escribirlo?", token, chat_id)
+        return
+
+    try:
+        texto = gemini_ia.transcribir(audio, mime=mime, api_key=api_key)
+    except Exception as e:
+        log.warning("transcribir lanzo: %s", e)
+        texto = None
+
+    if not texto:
+        A.enviar_mensaje(
+            "No he logrado entender el audio, señor. Si me lo escribe, lo "
+            "atiendo enseguida.", token, chat_id)
+        return
+
+    # Eco discreto de lo entendido y luego se procesa como texto normal.
+    A.enviar_mensaje(f"🎙️ <i>{esc(texto[:300])}</i>", token, chat_id)
+    manejar_mensaje(texto, cfg, token, chat_id)
+
+
 # ----------------------------------------------------------- procesar mensaje
 def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
     db.metrica_inc("mensajes")
@@ -1552,6 +1589,20 @@ def main():
                             db.estado_set("ultima_actividad", time.time())
                         manejar_mensaje(msg["text"], cfg, token, emisor)
                     DESPERTAR.set()  # por si el mensaje creo/borro recordatorios
+
+                elif "voice" in msg or "audio" in msg:
+                    # Notas de voz: Larry SOLO las entiende (transcribe a texto).
+                    # La transcripcion va a Gemini (cero carga local, ideal para
+                    # la Lenovo) y el texto se enruta como si lo hubiera escrito.
+                    ok, avisar = permitido(emisor)
+                    if not ok:
+                        log.warning("Rate-limit: descarto audio de %s", emisor)
+                        continue
+                    with db.como_dueno(dueno):
+                        if dueno == db.DUENO_PRINCIPAL:
+                            db.estado_set("ultima_actividad", time.time())
+                        manejar_voz(msg, cfg, token, emisor)
+                    DESPERTAR.set()
 
         except KeyboardInterrupt:
             apagar()

@@ -4,6 +4,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/) y
 versionado [SemVer](https://semver.org/lang/es/). El bot es stdlib pura en
 runtime; `ruff`/`mypy` son solo de desarrollo/CI.
 
+## [3.4.0] — 2026-06-15
+
+### Añadido
+- **Notas de voz (solo entender)**: Larry transcribe los audios y los procesa
+  como si fueran texto. Motor de transcripción **Gemini multimodal**
+  (`gemini_ia.transcribir`: manda el audio inline en base64, pide la
+  transcripción literal en español, tolerante a fallos —devuelve `None` y no
+  lanza). Elegido por ser lo más ligero para la Lenovo: cero carga local, sin
+  modelos que descargar ni dependencias nativas. Documentado vosk (Apache-2.0,
+  offline) como alternativa OSS si en el futuro se quiere sin nube.
+- **Descarga de archivos de Telegram**: `asistente.descargar_archivo(file_id)`
+  resuelve la ruta con `getFile` y baja los bytes con tope de tamaño
+  (2 MB por defecto) para no ahogar la máquina. Devuelve `None` si algo falla.
+- **Rama de voz en el bucle `getUpdates`**: nuevas claves `voice`/`audio` del
+  mensaje se enrutan a `bot.manejar_voz`, que descarga, transcribe, hace un eco
+  discreto de lo entendido (`🎙️ …`) y lo pasa por `manejar_mensaje`. Métrica
+  `audios`.
+
 ## [3.3.0] — 2026-06-14
 
 ### Añadido

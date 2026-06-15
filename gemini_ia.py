@@ -13,6 +13,7 @@ Devuelve una lista de acciones (diccionarios). Tipos posibles:
 """
 
 import json
+import base64
 import socket
 import logging
 import datetime
@@ -165,6 +166,48 @@ def _llamar(cuerpo, api_key):
             ultimo_error = e  # respuesta rara del modelo: probar el siguiente
             continue
     raise ultimo_error
+
+
+def transcribir(audio_bytes, mime="audio/ogg", api_key=None):
+    """Transcribe una nota de voz a texto usando Gemini (multimodal).
+
+    Manda el audio inline (base64) y pide SOLO la transcripcion literal en
+    español. Es lo mas ligero para la Lenovo: cero carga local, sin modelos
+    que descargar ni dependencias nativas. Devuelve el texto (str) o None si
+    no se pudo transcribir; nunca lanza, para no tumbar el bot por un audio.
+    """
+    if not api_key or not audio_bytes:
+        return None
+    cuerpo = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": (
+                    "Transcribe literalmente esta nota de voz en español. "
+                    "Devuelve SOLO el texto dictado, sin comillas, sin "
+                    "comentarios ni prefijos. Si no se entiende nada, "
+                    "responde exactamente: (inaudible)."
+                )},
+                {"inline_data": {
+                    "mime_type": mime,
+                    "data": base64.b64encode(audio_bytes).decode("ascii"),
+                }},
+            ],
+        }],
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": 1024,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }
+    try:
+        texto = (_llamar(cuerpo, api_key) or "").strip()
+    except Exception as e:
+        log.warning("Transcripcion fallida: %s", e)
+        return None
+    if not texto or texto.lower() == "(inaudible)":
+        return None
+    return texto
 
 
 # --------------------------------------------- respaldos gratis (formato OpenAI)

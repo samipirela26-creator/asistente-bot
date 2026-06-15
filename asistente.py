@@ -279,6 +279,37 @@ def enviar_foto(png_bytes, token, chat_id, caption=""):
         return {"ok": False, "error": "respuesta_invalida", "description": str(e)}
 
 
+def descargar_archivo(file_id, token, max_bytes=2_000_000):
+    """Descarga un archivo de Telegram (p. ej. una nota de voz) por file_id.
+
+    Hace getFile para resolver la ruta y luego baja los bytes. Tope de tamaño
+    (max_bytes) para no tragarse audios enormes en la Lenovo. Devuelve los
+    bytes o None si algo falla (nunca lanza)."""
+    res = api_telegram("getFile", {"file_id": file_id}, token)
+    if not res.get("ok"):
+        log.warning("getFile fallido: %s", res)
+        return None
+    ruta = res.get("result", {}).get("file_path")
+    if not ruta:
+        return None
+    tam = res.get("result", {}).get("file_size")
+    if tam and tam > max_bytes:
+        log.warning("Audio demasiado grande (%s bytes); se ignora", tam)
+        return None
+    url = f"https://api.telegram.org/file/bot{token}/{ruta}"
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            datos = resp.read(max_bytes + 1)
+        if len(datos) > max_bytes:
+            log.warning("Audio supera el tope al descargar; se ignora")
+            return None
+        return datos
+    except (urllib.error.HTTPError, urllib.error.URLError,
+            socket.timeout, TimeoutError) as e:
+        log.warning("Descarga de archivo fallida: %s", e)
+        return None
+
+
 def fecha_legible(d):
     return f"{DIAS[d.weekday()]} {d.day} de {MESES[d.month - 1]}"
 
