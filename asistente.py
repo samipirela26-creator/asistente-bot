@@ -239,6 +239,46 @@ def enviar_mensaje(texto, token, chat_id, botones=None):
     return res
 
 
+def enviar_foto(png_bytes, token, chat_id, caption=""):
+    """Envía un PNG (bytes) por sendPhoto con multipart/form-data armado a mano.
+    Devuelve SIEMPRE un dict (nunca lanza), igual que api_telegram."""
+    import uuid
+    frontera = "----asistente" + uuid.uuid4().hex
+    crlf = "\r\n"
+    cuerpo = bytearray()
+
+    def campo(nombre, valor):
+        cuerpo.extend((f"--{frontera}{crlf}"
+                       f'Content-Disposition: form-data; name="{nombre}"{crlf}{crlf}'
+                       f"{valor}{crlf}").encode("utf-8"))
+
+    campo("chat_id", str(chat_id))
+    if caption:
+        campo("caption", caption[:1024])
+        campo("parse_mode", "HTML")
+    cuerpo.extend((f"--{frontera}{crlf}"
+                   'Content-Disposition: form-data; name="photo"; '
+                   f'filename="progreso.png"{crlf}'
+                   f"Content-Type: image/png{crlf}{crlf}").encode("utf-8"))
+    cuerpo.extend(png_bytes)
+    cuerpo.extend(f"{crlf}--{frontera}--{crlf}".encode("utf-8"))
+
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    req = urllib.request.Request(url, data=bytes(cuerpo))
+    req.add_header("Content-Type", f"multipart/form-data; boundary={frontera}")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        log.error("sendPhoto rechazado (%s)", e.code)
+        return {"ok": False, "error": f"http_{e.code}", "description": str(e)}
+    except (socket.timeout, TimeoutError, urllib.error.URLError) as e:
+        log.warning("sendPhoto sin red: %s", e)
+        return {"ok": False, "error": "red", "description": str(e)}
+    except (ValueError, json.JSONDecodeError) as e:
+        return {"ok": False, "error": "respuesta_invalida", "description": str(e)}
+
+
 def fecha_legible(d):
     return f"{DIAS[d.weekday()]} {d.day} de {MESES[d.month - 1]}"
 
@@ -411,6 +451,14 @@ def main():
                 msg += "\n\n" + nov
         except Exception as e:
             log.warning("No pude anexar novedades al resumen: %s", e)
+        # Versículo del día (lo elige la MÁQUINA, no la IA).
+        try:
+            import versiculos
+            v = versiculos.para_parte()
+            if v:
+                msg += "\n\n— — —\n" + v
+        except Exception as e:
+            log.warning("No pude anexar el versículo matutino: %s", e)
         for cid in destinos:
             enviar_mensaje(msg, token, cid)
         print(f"Resumen enviado a {len(destinos)} cuenta(s).")
@@ -431,6 +479,13 @@ def main():
             lineas.append(f"\n📝 Quedan {len(pend)} pendiente(s) para mañana.")
         lineas.append("😴 Descansa bien!")
         msg = "\n".join(lineas)
+        try:
+            import versiculos
+            v = versiculos.para_parte()
+            if v:
+                msg += "\n\n— — —\n" + v
+        except Exception as e:
+            log.warning("No pude anexar el versículo nocturno: %s", e)
         for cid in destinos:
             enviar_mensaje(msg, token, cid)
         print("Resumen nocturno enviado.")

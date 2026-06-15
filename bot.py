@@ -52,18 +52,16 @@ _LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "3.2"
+VERSION = "3.3"
 NOVEDADES = (
-    "<b>Parte de novedades — versión 3.2</b>\n\n"
+    "<b>Parte de novedades — versión 3.3</b>\n\n"
     "Me permito informarle de las mejoras incorporadas a su servicio:\n"
-    "• <b>Su nombre:</b> tendré el honor de preguntarle cómo desea que me "
-    "dirija a usted, y en adelante alternaré entre su nombre y un sobrio "
-    "«señor», según convenga.\n"
-    "• <b>Cambiar el trato:</b> en el menú dispone del botón <b>✏️ Mi "
-    "nombre</b> para indicarme un nombre distinto cuando lo desee.\n"
-    "• <b>Estado para todas sus cuentas:</b> el comando «estado» queda "
-    "disponible desde cualquiera de sus cuentas personales, no solo la "
-    "primera.\n\n"
+    "• <b>Tarjeta de su progreso:</b> en el menú hallará el botón <b>📊 Mi "
+    "progreso</b>. Le compondré, cuando guste, una lámina con el avance "
+    "global y el de cada proyecto.\n"
+    "• <b>Una palabra cada día:</b> anexaré a sus partes de la mañana y de "
+    "la noche un versículo sobre constancia y perseverancia, escogido por "
+    "la casa.\n\n"
     "Quedo, como siempre, a su entera disposición."
 )
 
@@ -263,7 +261,8 @@ def botones_menu():
          {"text": "🎯 Intereses", "callback_data": "menu:intereses"}],
         [{"text": "📖 Lecturas", "callback_data": "menu:lecturas"},
          {"text": "❓ Ayuda", "callback_data": "menu:ayuda"}],
-        [{"text": "✏️ Mi nombre", "callback_data": "menu:nombre"}],
+        [{"text": "📊 Mi progreso", "callback_data": "menu:tarjeta"},
+         {"text": "✏️ Mi nombre", "callback_data": "menu:nombre"}],
     ]
 
 
@@ -1258,6 +1257,19 @@ def manejar_boton(cb, cfg, token, chat_id):
                         token, chat_id)
                 else:
                     A.enviar_mensaje(_saludo_presentacion(), token, chat_id)
+            elif rid == "tarjeta":
+                try:
+                    import tarjeta
+                    png = tarjeta.generar()
+                    res = A.enviar_foto(png, token, chat_id,
+                                        caption="📊 <b>Su progreso</b>")
+                    if not res.get("ok"):
+                        A.enviar_mensaje("No pude componer la tarjeta ahora, señor. "
+                                         "Lo intentaré más tarde.", token, chat_id)
+                except Exception as e:
+                    log.warning("Fallo al generar la tarjeta: %s", e)
+                    A.enviar_mensaje("No pude componer la tarjeta ahora, señor.",
+                                     token, chat_id)
             elif rid == "sugerencia":
                 manejar_mensaje(
                     "No tengo nada que hacer ahora, sugiereme algo concreto "

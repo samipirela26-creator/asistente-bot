@@ -4,6 +4,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/) y
 versionado [SemVer](https://semver.org/lang/es/). El bot es stdlib pura en
 runtime; `ruff`/`mypy` son solo de desarrollo/CI.
 
+## [3.3.0] — 2026-06-14
+
+### Añadido
+- **Tarjeta de progreso (PNG)**: nuevo módulo `tarjeta.py` que dibuja —con la
+  máquina, no la IA— una lámina «estilo D» (anillo con el % global de avance +
+  barras por proyecto), alimentada por SQLite (`progreso_proyecto`, `racha`,
+  `actividad`). Stdlib pura: `zlib`+`struct` y una fuente bitmap 5×7 propia; sin
+  Pillow ni matplotlib. Se pide a demanda con el botón **📊 Mi progreso**.
+- **Envío de imágenes**: `asistente.enviar_foto()` arma `multipart/form-data` a
+  mano sobre `urllib` para `sendPhoto` (devuelve siempre un `dict`, nunca lanza).
+- **Versículo del día**: carpeta editable `versiculos/` (100 versículos sobre
+  constancia, en voz de Larry) y módulo `versiculos.py` que la máquina relee y
+  escoge uno al azar. Se anexa a los partes matutino y nocturno.
+
 ## [3.2.0] — 2026-06-14
 
 ### Añadido
