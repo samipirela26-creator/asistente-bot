@@ -52,6 +52,17 @@ WorkingDirectory=$AQUI
 ExecStart=/usr/bin/python3 $AQUI/asistente.py noche
 EOF
 
+# --- Tarjeta de progreso semanal (domingos) ---
+cat > ~/.config/systemd/user/agenda-tarjeta.service <<EOF
+[Unit]
+Description=Tarjeta de progreso semanal del asistente
+
+[Service]
+Type=oneshot
+WorkingDirectory=$AQUI
+ExecStart=/usr/bin/python3 $AQUI/asistente.py tarjeta
+EOF
+
 # --- Chequeo de salud (avisa por Telegram si el bot se cae) ---
 cat > ~/.config/systemd/user/agenda-salud.service <<EOF
 [Unit]
@@ -64,10 +75,10 @@ ExecStart=/usr/bin/python3 $AQUI/chequear_salud.py
 EOF
 
 # Los timers no llevan rutas; se copian tal cual.
-cp "$AQUI"/agenda-resumen.timer "$AQUI"/agenda-noche.timer "$AQUI"/agenda-salud.timer ~/.config/systemd/user/
+cp "$AQUI"/agenda-resumen.timer "$AQUI"/agenda-noche.timer "$AQUI"/agenda-tarjeta.timer "$AQUI"/agenda-salud.timer ~/.config/systemd/user/
 
 systemctl --user daemon-reload
-systemctl --user enable --now agenda-bot.service agenda-resumen.timer agenda-noche.timer agenda-salud.timer
+systemctl --user enable --now agenda-bot.service agenda-resumen.timer agenda-noche.timer agenda-tarjeta.timer agenda-salud.timer
 systemctl --user restart agenda-bot.service
 echo "Listo. El bot corre desde: $AQUI"
-systemctl --user list-timers agenda-resumen.timer agenda-noche.timer agenda-salud.timer --no-pager
+systemctl --user list-timers agenda-resumen.timer agenda-noche.timer agenda-tarjeta.timer agenda-salud.timer --no-pager

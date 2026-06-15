@@ -59,6 +59,11 @@ NOVEDADES = (
     "• <b>Tarjeta de su progreso:</b> en el menú hallará el botón <b>📊 Mi "
     "progreso</b>. Le compondré, cuando guste, una lámina con el avance "
     "global y el de cada proyecto.\n"
+    "• <b>Lámina de los domingos:</b> cada domingo por la mañana le haré "
+    "llegar esa lámina con el progreso de la semana, sin que tenga que "
+    "pedirla.\n"
+    "• <b>Su avance del día:</b> al cerrar la jornada le preguntaré si "
+    "avanzó en algo no anotado; lo que me cuente lo sumaré a su progreso.\n"
     "• <b>Una palabra cada día:</b> anexaré a sus partes de la mañana y de "
     "la noche un versículo sobre constancia y perseverancia, escogido por "
     "la casa.\n\n"
@@ -1030,6 +1035,29 @@ def _onboarding(texto, cfg, token, chat_id):
     return False
 
 
+def _clave_esperando_progreso(chat_id):
+    return "esperando_progreso:" + str(chat_id)
+
+
+def _capturar_progreso(texto, token, chat_id):
+    """Si el bot pidió registrar un avance del día (botón nocturno), este mensaje
+    ES ese avance: lo guarda en la actividad y confirma. Devuelve True si cortó
+    el flujo. 'cancelar'/'nada' lo desactiva sin guardar."""
+    clave = _clave_esperando_progreso(chat_id)
+    if db.estado_get(clave) != "1":
+        return False
+    t = (texto or "").strip()
+    db.estado_set(clave, "0")
+    if not t or t.lower() in ("cancelar", "nada", "no", "olvidalo", "olvídalo"):
+        A.enviar_mensaje("Como guste, señor. No he anotado nada.", token, chat_id)
+        return True
+    db.log_actividad("manual", t[:200])
+    A.enviar_mensaje(
+        f"Anotado, señor: <i>{esc(t[:200])}</i>. Lo he sumado a su progreso.",
+        token, chat_id)
+    return True
+
+
 # ----------------------------------------------------------- procesar mensaje
 def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
     db.metrica_inc("mensajes")
@@ -1037,6 +1065,10 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
 
     # 0.0) Presentacion: la primera vez, Larry pregunta el nombre del usuario.
     if _onboarding(texto, cfg, token, chat_id):
+        return
+
+    # 0.05) Captura de avance del dia (tras la pregunta nocturna).
+    if _capturar_progreso(texto, token, chat_id):
         return
 
     # 0) Atajos con botones (menu minimalista).
@@ -1276,6 +1308,20 @@ def manejar_boton(cb, cfg, token, chat_id):
                     "segun mis proyectos e intereses", cfg, token, chat_id)
             else:  # lista, resumen, notas, recordatorios
                 manejar_mensaje(rid, cfg, token, chat_id)
+            return
+        if accion == "progreso":
+            try:
+                A.api_telegram("answerCallbackQuery",
+                               {"callback_query_id": cb["id"], "text": ""}, token)
+            except Exception:
+                pass
+            if rid == "add":
+                db.estado_set(_clave_esperando_progreso(chat_id), "1")
+                A.enviar_mensaje(
+                    "Le escucho, señor. ¿En qué avanzó hoy? Cuéntemelo en un "
+                    "mensaje y lo sumaré a su progreso.", token, chat_id)
+            else:
+                A.enviar_mensaje("Muy bien, señor. Que descanse.", token, chat_id)
             return
         if accion == "proy_all":
             aviso = texto_proyectos(completo=True)

@@ -478,6 +478,8 @@ def main():
         if pend:
             lineas.append(f"\n📝 Quedan {len(pend)} pendiente(s) para mañana.")
         lineas.append("😴 Descansa bien!")
+        lineas.append("\n¿Avanzó hoy en algo que no estuviera anotado, señor? "
+                      "Si me lo cuenta, lo sumaré a su progreso.")
         msg = "\n".join(lineas)
         try:
             import versiculos
@@ -486,9 +488,40 @@ def main():
                 msg += "\n\n— — —\n" + v
         except Exception as e:
             log.warning("No pude anexar el versículo nocturno: %s", e)
+        botones_noche = [[
+            {"text": "➕ Registrar avance", "callback_data": "progreso:add"},
+            {"text": "Nada hoy", "callback_data": "progreso:no"},
+        ]]
+        for cid in destinos:
+            enviar_mensaje(msg, token, cid, botones=botones_noche)
+        print("Resumen nocturno enviado.")
+    elif accion == "tarjeta":
+        # Parte dominical: saludo + versículo y, acto seguido, la imagen con el
+        # progreso semanal. La compone la MÁQUINA (no la IA).
+        import tarjeta
+        try:
+            png = tarjeta.generar()
+        except Exception as e:
+            log.error("No pude generar la tarjeta semanal: %s", e)
+            png = None
+        saludo = [f"<b>Buenos días.</b> {fecha_legible(hoy)}."]
+        try:
+            import versiculos
+            v = versiculos.para_parte()
+            if v:
+                saludo.append("")
+                saludo.append(v)
+        except Exception as e:
+            log.warning("Sin versículo en el parte dominical: %s", e)
+        saludo.append("")
+        saludo.append("Le paso una imagen, señor, para que tenga presente su "
+                      "progreso de la semana.")
+        msg = "\n".join(saludo)
         for cid in destinos:
             enviar_mensaje(msg, token, cid)
-        print("Resumen nocturno enviado.")
+            if png:
+                enviar_foto(png, token, cid, caption="📊 <b>Su progreso semanal</b>")
+        print(f"Tarjeta semanal enviada a {len(destinos)} cuenta(s).")
     elif accion == "recordatorios":
         texto = construir_recordatorios(tareas, hoy)
         if texto:

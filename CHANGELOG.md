@@ -12,6 +12,13 @@ runtime; `ruff`/`mypy` son solo de desarrollo/CI.
   barras por proyecto), alimentada por SQLite (`progreso_proyecto`, `racha`,
   `actividad`). Stdlib pura: `zlib`+`struct` y una fuente bitmap 5×7 propia; sin
   Pillow ni matplotlib. Se pide a demanda con el botón **📊 Mi progreso**.
+- **Lámina semanal automática**: nueva acción `asistente.py tarjeta` y timer
+  `agenda-tarjeta.timer` (domingos 9:00) que manda un saludo con versículo y, a
+  continuación, la imagen del progreso de la semana. Añadida al instalador
+  portátil `instalar-timers.sh`.
+- **Registro del avance del día**: el parte nocturno pregunta por botones si se
+  avanzó en algo no anotado; al responder, el bot lo guarda con
+  `db.log_actividad("manual", ...)` y lo suma a la racha/actividad.
 - **Envío de imágenes**: `asistente.enviar_foto()` arma `multipart/form-data` a
   mano sobre `urllib` para `sendPhoto` (devuelve siempre un `dict`, nunca lanza).
 - **Versículo del día**: carpeta editable `versiculos/` (100 versículos sobre
