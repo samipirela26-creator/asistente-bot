@@ -592,6 +592,27 @@ class NombreYTratamientoTest(unittest.TestCase):
         self.assertEqual(db.tratamiento(), "señor")
         self.assertEqual(db.tratamiento(), "señor Samuel")
 
+    def test_titulo_por_defecto_y_valido(self):
+        self.assertEqual(db.get_titulo(), "señor")
+        self.assertEqual(db.set_titulo("sra"), "señora")
+        self.assertEqual(db.get_titulo(), "señora")
+        self.assertEqual(db.set_titulo("señorita"), "señorita")
+        self.assertEqual(db.get_titulo(), "señorita")
+        # Valor invalido -> cae a 'señor'.
+        self.assertEqual(db.set_titulo("cualquiera"), "señor")
+
+    def test_tratamiento_usa_el_titulo_elegido(self):
+        db.set_nombre("Ana")
+        db.set_titulo("srta")
+        self.assertEqual(db.tratamiento(), "señorita Ana")
+        self.assertEqual(db.tratamiento(), "señorita")
+        self.assertEqual(db.tratamiento(), "señorita Ana")
+
+    def test_titulo_sin_nombre_es_solo_el_titulo(self):
+        db.set_titulo("señora")
+        self.assertIsNone(db.get_nombre())
+        self.assertEqual(db.tratamiento(), "señora")
+
     def test_avanzar_false_no_mueve_el_turno(self):
         db.set_nombre("Samuel")
         self.assertEqual(db.tratamiento(avanzar=False), "señor Samuel")

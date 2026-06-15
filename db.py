@@ -754,6 +754,32 @@ def _clave_trato(dueno=None):
     return "trato_n:" + _d(dueno)
 
 
+def _clave_titulo(dueno=None):
+    return "trato_titulo:" + _d(dueno)
+
+
+TITULOS_VALIDOS = ("señor", "señora", "señorita")
+
+
+def get_titulo(dueno=None):
+    """Tratamiento elegido por el usuario: 'señor' | 'señora' | 'señorita'.
+    Por defecto 'señor' (hasta que elija)."""
+    t = (estado_get(_clave_titulo(dueno)) or "").strip().lower()
+    return t if t in TITULOS_VALIDOS else "señor"
+
+
+def set_titulo(titulo, dueno=None):
+    """Guarda el tratamiento. Acepta el nombre completo o un codigo corto
+    (sr/sra/srta). Si no es valido, queda en 'señor'."""
+    mapa = {"sr": "señor", "sra": "señora", "srta": "señorita"}
+    t = (titulo or "").strip().lower()
+    t = mapa.get(t, t)
+    if t not in TITULOS_VALIDOS:
+        t = "señor"
+    estado_set(_clave_titulo(dueno), t)
+    return t
+
+
 def get_nombre(dueno=None):
     """Nombre con el que el usuario pidio que se le llame, o None si aun no lo
     ha indicado."""
@@ -768,18 +794,20 @@ def set_nombre(nombre, dueno=None):
 
 def tratamiento(dueno=None, avanzar=True):
     """Forma de dirigirse al usuario. Alterna, en llamadas sucesivas, entre
-    'señor <Nombre>' y 'señor' a secas (varia el trato para que suene mas
-    natural y elegante). Si aun no hay nombre, devuelve siempre 'señor'.
+    '<titulo> <Nombre>' y el '<titulo>' a secas (señor/señora/señorita segun lo
+    que el usuario eligio), para que suene mas natural y elegante. Si aun no hay
+    nombre, devuelve solo el titulo.
 
     avanzar=False solo consulta el trato actual sin mover el turno (util para
     tests o para mostrarlo sin gastar el ciclo)."""
+    titulo = get_titulo(dueno)
     nombre = get_nombre(dueno)
     if not nombre:
-        return "señor"
+        return titulo
     n = int(estado_get(_clave_trato(dueno), 0) or 0)
     if avanzar:
         estado_set(_clave_trato(dueno), n + 1)
-    return f"señor {nombre}" if n % 2 == 0 else "señor"
+    return f"{titulo} {nombre}" if n % 2 == 0 else titulo
 
 
 # --------------------------------------------------- recordatorios por id

@@ -7,10 +7,12 @@ runtime; `ruff`/`mypy` son solo de desarrollo/CI.
 ## [3.2.0] — 2026-06-14
 
 ### Añadido
-- **Trato personalizado**: Larry pregunta al usuario cómo desea que se dirija a
-  él y alterna entre «señor <Nombre>» y «señor» a secas en cada respuesta
-  (`db.get_nombre`/`set_nombre`/`tratamiento`, inyectado en el prompt de la IA).
-  Onboarding una sola vez, controlado por `ONBOARDING_DESDE`.
+- **Trato personalizado**: Larry pregunta al usuario su nombre y, por botones,
+  su tratamiento (**señor / señora / señorita**). Luego alterna entre
+  «<título> <Nombre>» y el «<título>» a secas en cada respuesta
+  (`db.get_nombre`/`set_nombre`/`get_titulo`/`set_titulo`/`tratamiento`,
+  inyectado en el prompt de la IA). Onboarding una sola vez, controlado por
+  `ONBOARDING_DESDE`.
 - **Botón ✏️ Mi nombre** en el menú para cambiar el nombre cuando se quiera.
 
 ### Cambiado

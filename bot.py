@@ -986,6 +986,15 @@ def _extraer_nombre(texto):
     return t
 
 
+def botones_titulo():
+    """Botones para elegir el tratamiento: señor / señora / señorita."""
+    return [[
+        {"text": "Señor", "callback_data": "trato_set:sr"},
+        {"text": "Señora", "callback_data": "trato_set:sra"},
+        {"text": "Señorita", "callback_data": "trato_set:srta"},
+    ]]
+
+
 def _saludo_presentacion():
     return (
         "Antes de proseguir, permítame una cortesía: ¿cómo desea que me dirija "
@@ -1009,9 +1018,10 @@ def _onboarding(texto, cfg, token, chat_id):
             return True
         db.set_nombre(nombre)
         db.estado_set(clave, "0")
+        # Ahora el tratamiento: señor / señora / señorita (por botones).
         A.enviar_mensaje(
-            f"Un placer, señor {esc(nombre)}. Quedo a su entero servicio.",
-            token, chat_id)
+            f"Un placer, {esc(nombre)}. ¿Cómo debo referirme a usted?",
+            token, chat_id, botones=botones_titulo())
         return True
     if db.get_nombre() is None:
         # Aun no se ha presentado: nos presentamos y se lo preguntamos.
@@ -1311,6 +1321,15 @@ def manejar_boton(cb, cfg, token, chat_id):
             else:
                 aviso = ("🤷 Ya no se puede deshacer (pasaron 24h o ya lo "
                          "restauraste).")
+        elif accion == "trato_set":
+            titulo = db.set_titulo(rid)
+            nombre = db.get_nombre()
+            if nombre:
+                aviso = (f"Excelente. Me dirigiré a usted como "
+                         f"<b>{esc(titulo)} {esc(nombre)}</b>. Quedo a su "
+                         "entero servicio.")
+            else:
+                aviso = f"Entendido. La trataré de <b>{esc(titulo)}</b>."
         elif accion == "ins_set":
             # rid trae "id:intervalo:veces" (cuántas veces insistir).
             rec_id, inter, veces = (int(x) for x in rid.split(":"))
