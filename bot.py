@@ -179,7 +179,7 @@ def texto_proyectos(completo=False):
     """Resumen de proyectos grandes con su progreso y fase actual."""
     proyectos = db.cargar_proyectos(solo_pendientes=False)
     if not proyectos:
-        return "🏗 No tienes proyectos. Crea uno: <i>crea el proyecto X con fases: a, b, c</i>"
+        return "🏗 No tiene proyectos. Cree uno: <i>crea el proyecto X con fases: a, b, c</i>"
     out = ["🏗 <b>Proyectos grandes</b>"]
     for p in proyectos:
         pendientes = [f for f in p["fases"] if not f["hecho"]]
@@ -270,9 +270,9 @@ def botones_menu():
 def texto_intereses():
     ints = db.get_intereses()
     if not ints:
-        return ("🎯 No tienes intereses guardados.\n"
-                "Dime: <i>me interesa mejorar en guitarra</i>")
-    return "🎯 <b>Tus intereses</b>\n" + "\n".join(
+        return ("🎯 No tiene intereses guardados.\n"
+                "Indíqueme: <i>me interesa mejorar en guitarra</i>")
+    return "🎯 <b>Sus intereses</b>\n" + "\n".join(
         f"  {i}. {esc(t)}" for i, t in enumerate(ints, 1))
 
 
@@ -349,8 +349,8 @@ def atajo(texto, tareas):
 
     if low in ("/start", "ayuda", "/ayuda", "help"):
         return (
-            "👋 <b>Hola! Soy tu agenda con IA.</b>\n"
-            "Escribeme con naturalidad, por ejemplo:\n\n"
+            "👋 <b>A su servicio. Soy su agenda con IA.</b>\n"
+            "Escríbame con naturalidad, por ejemplo:\n\n"
             "⏰ <i>recuérdame llamar al banco mañana a las 10</i>\n"
             "🏗 <i>crea el proyecto pizzeria cuatro estaciones</i>\n"
             "▶️ <i>cual es la siguiente fase de la pizzeria?</i>\n"
@@ -379,7 +379,7 @@ def atajo(texto, tareas):
             return "🗒 <b>Tus notas</b>\n" + "\n".join(
                 f"  {i}. {esc(n['texto'])}\n      📆 {n['fecha'][:10]}"
                 for i, n in enumerate(notas, 1)), False
-        return "🗒 No tienes notas todavia.\nGuarda una con: <i>anota tu idea</i>", False
+        return "🗒 No tiene notas todavía.\nGuarde una con: <i>anota tu idea</i>", False
 
     if low in ("uso", "/uso", "tokens", "cuota") or \
             re.search(r"\btokens?\b", low) or \
@@ -396,7 +396,7 @@ def atajo(texto, tareas):
             return "⏰ <b>Tus recordatorios</b>\n" + "\n".join(
                 f"  {i}. {esc(r['texto'])}\n      🕐 {esc(r['cuando'].replace('T',' · '))}"
                 for i, r in enumerate(rec, 1)), False
-        return "⏰ No tienes recordatorios. ✨", False
+        return "⏰ No tiene recordatorios. ✨", False
 
     return None
 
@@ -507,7 +507,7 @@ def procesar_simple(texto, tareas, estricto=False):
             return ("📖 <b>Lecturas</b>\n" + "\n".join(
                 f"  • <b>{esc(l['nombre'])}</b>: {esc(l['marcador'])}\n      📆 {l['actualizado']}"
                 for l in lect), False)
-        return ("📖 No tienes lecturas registradas. Dime: <i>quede en Juan 5</i>", False)
+        return ("📖 No tiene lecturas registradas. Indíqueme: <i>quede en Juan 5</i>", False)
 
     # "ya lo hice / ya pague X / listo X" -> apagar recordatorio insistente
     m = re.match(r"^(ya\s+(?:lo\s+hice|esta|estuvo)|listo|hecho)\b\s*(.*)$", low)
@@ -517,11 +517,11 @@ def procesar_simple(texto, tareas, estricto=False):
         insistentes = [r for r in rec if r.get("insistir_min")]
         if len(insistentes) == 1 and not objetivo:
             q = db.borrar_recordatorio(insistentes[0]["texto"])
-            return (f"🎉 Bien hecho! Apagué el recordatorio: <i>{esc(q['texto'])}</i>", False)
+            return (f"✅ Atendido. He apagado el recordatorio: <i>{esc(q['texto'])}</i>", False)
         if objetivo:
             q = db.borrar_recordatorio(objetivo)
             if q:
-                return (f"🎉 Bien hecho! Apagué el recordatorio: <i>{esc(q['texto'])}</i>", False)
+                return (f"✅ Atendido. He apagado el recordatorio: <i>{esc(q['texto'])}</i>", False)
 
     # "pausa / yo te aviso / deja de recordarme / silencia" -> callar la
     # insistencia automatica AL INSTANTE. Antes la IA solo respondía "de acuerdo"
@@ -677,8 +677,8 @@ def ejecutar_acciones(acciones, tareas):
                       "callback_data": f"ins_set:{rid}:{inter}:-1"}],
                 ]
                 preguntas.append((
-                    f"🔔 ¿Cuántas veces te insisto con <i>{esc(txt)}</i> "
-                    f"({cada}) si no respondes?", botones_ins))
+                    f"🔔 ¿Cuántas veces desea que le insista con <i>{esc(txt)}</i> "
+                    f"({cada}) si no responde?", botones_ins))
         elif tipo == "borrar_recordatorio":
             q = db.borrar_recordatorio(a.get("objetivo", ""))
             if q:
@@ -694,7 +694,7 @@ def ejecutar_acciones(acciones, tareas):
                 lineas.append("⏰ <b>Tus recordatorios</b>\n" + "\n".join(
                     f"  • {esc(r['texto'])}\n      🕐 {esc(r['cuando'].replace('T',' · '))}" for r in rec))
             else:
-                lineas.append("⏰ No tienes recordatorios. ✨")
+                lineas.append("⏰ No tiene recordatorios. ✨")
         elif tipo == "crear_proyecto":
             db.add_proyecto((a.get("nombre") or "").strip(), (a.get("descripcion") or "").strip())
             lineas.append(f"🏗 Proyecto creado: <b>{esc(a.get('nombre',''))}</b>")
@@ -1101,11 +1101,11 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
     if re.search(r"^/?(?:borra(?:r)?|elimina(?:r)?|limpia(?:r)?)\s+todo(?:s)?\b",
                  low) or low in ("/borrartodo", "borrón total", "borron total"):
         A.enviar_mensaje(
-            "⚠️ <b>¿Seguro que quieres borrar TODO?</b>\n"
-            "Se eliminarán tus recordatorios, tareas, eventos, notas, proyectos, "
+            "⚠️ <b>¿Está seguro de que desea borrar TODO?</b>\n"
+            "Se eliminarán sus recordatorios, tareas, eventos, notas, proyectos, "
             "fases y lecturas.\n\n"
-            "🛟 Tranquilo: queda guardado <b>24 horas</b> por si te arrepientes.\n"
-            "👇 Confírmalo con los botones (no se borra escribiéndolo):",
+            "🛟 Quede tranquilo: se conserva <b>24 horas</b> por si se arrepiente.\n"
+            "👇 Confírmelo con los botones (no se borra escribiéndolo):",
             token, chat_id, botones=[[
                 {"text": "🗑 Sí, borrar TODO", "callback_data": "borrar_all:si"},
                 {"text": "✖️ Cancelar", "callback_data": "borrar_all:no"},
@@ -1294,7 +1294,7 @@ def manejar_boton(cb, cfg, token, chat_id):
         elif accion == "rec_done":
             q = db.borrar_recordatorio_id(int(rid))
             if q:
-                aviso = f"🎉 Bien hecho! ✅ <i>{esc(q['texto'])}</i>"
+                aviso = f"✅ Atendido. <i>{esc(q['texto'])}</i>"
                 if q.get("borrados", 0) > 1:
                     aviso += f"\n🔕 Apagué los {q['borrados']} avisos de esa tarea."
             else:
@@ -1307,20 +1307,20 @@ def manejar_boton(cb, cfg, token, chat_id):
                 total, pid = db.borrar_todo()
                 if total:
                     aviso = (f"🗑 <b>Borrado.</b> Eliminé {total} elemento(s).\n"
-                             "🛟 Tienes <b>24 horas</b> para deshacerlo.")
+                             "🛟 Dispone de <b>24 horas</b> para deshacerlo.")
                     botones = [[{"text": "↩️ Deshacer",
                                  "callback_data": f"recuperar_all:{pid}"}]]
                 else:
-                    aviso = "🤷 No tenías nada que borrar."
+                    aviso = "🤷 No tenía nada que borrar."
             else:
-                aviso = "👍 Cancelado. No borré nada."
+                aviso = "👍 Cancelado. No he borrado nada."
         elif accion == "recuperar_all":
             n = db.recuperar_todo(papelera_id=int(rid))
             if n:
                 aviso = f"↩️ <b>Restaurado.</b> Recuperé {n} elemento(s)."
             else:
                 aviso = ("🤷 Ya no se puede deshacer (pasaron 24h o ya lo "
-                         "restauraste).")
+                         "restauró).")
         elif accion == "trato_set":
             titulo = db.set_titulo(rid)
             nombre = db.get_nombre()
@@ -1336,14 +1336,14 @@ def manejar_boton(cb, cfg, token, chat_id):
             db.configurar_insistencia(rec_id, inter, veces)
             cada = f"{inter} min" if inter < 60 else f"{inter // 60} h"
             if veces == -1:
-                aviso = (f"🔥 Modo súper insistente: te avisaré cada {cada} "
-                         "hasta que marques <b>Hecho</b> (de madrugada espero "
-                         "a la mañana para no molestar).")
+                aviso = (f"🔥 Modo súper insistente: le avisaré cada {cada} "
+                         "hasta que marque <b>Hecho</b> (de madrugada espero "
+                         "a la mañana para no importunarle).")
             elif veces > 0:
-                aviso = (f"🔔 Listo: te insistiré hasta <b>{veces}</b> "
-                         f"vez(ces) más, cada {cada}, si no marcas Hecho.")
+                aviso = (f"🔔 De acuerdo: le insistiré hasta <b>{veces}</b> "
+                         f"vez(ces) más, cada {cada}, si no marca Hecho.")
             else:
-                aviso = "👍 De acuerdo, te aviso una sola vez."
+                aviso = "👍 De acuerdo, le avisaré una sola vez."
     except Exception as e:
         log.warning("Error procesando boton: %s", e)
         aviso = "🤔 No pude procesar el boton."
