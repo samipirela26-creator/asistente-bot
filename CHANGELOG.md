@@ -4,6 +4,26 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/) y
 versionado [SemVer](https://semver.org/lang/es/). El bot es stdlib pura en
 runtime; `ruff`/`mypy` son solo de desarrollo/CI.
 
+## [3.5.0] — 2026-06-22
+
+### Añadido
+- **Parte automático opt-in para cada usuario**: Larry pregunta una sola vez,
+  por botones, si el usuario desea el parte de buenos días y el resumen
+  nocturno (`db.set_partes`/`get_partes`/`usuarios_con_partes`). Los partes
+  matutino y nocturno (`asistente.py resumen`/`noche`) y la lámina dominical
+  (`tarjeta`) se envían además a los externos que dijeron que sí, **cada uno
+  con SUS propios datos** y sin IA (para no multiplicar cuota ni carga en la
+  Lenovo). Las cuentas del dueño siguen recibiéndolo por configuración.
+- **Registro de todos los usuarios**: nueva tabla `usuarios` que anota a
+  cualquiera que escriba al bot —aunque no cree ni una tarea— con su primer y
+  último contacto (`db.registrar_visto`, `usuarios_registrados`). El comando
+  `usuarios` ahora los lista a TODOS (antes solo veía a quien tenía datos) y
+  muestra su preferencia de partes.
+
+### Corregido
+- El comando `usuarios` ya no se dejaba fuera a quienes solo conversaban con el
+  bot sin generar datos.
+
 ## [3.4.0] — 2026-06-15
 
 ### Añadido

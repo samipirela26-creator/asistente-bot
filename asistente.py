@@ -139,6 +139,40 @@ def todos_los_chats(cfg):
     return ids
 
 
+def chats_opt_in(cfg, db):
+    """Usuarios EXTERNOS (no del dueño) que pidieron por botón el parte
+    automático de buenos días/noches. Excluye las cuentas del dueño, que ya lo
+    reciben por configuración, para no duplicar."""
+    propios = {str(c) for c in todos_los_chats(cfg)}
+    try:
+        return [c for c in db.usuarios_con_partes() if str(c) not in propios]
+    except Exception as e:
+        log.warning("No pude leer los opt-in de partes: %s", e)
+        return []
+
+
+def construir_noche(tareas, db, hoy=None):
+    """Texto del parte nocturno (sin IA), válido para cualquier dueño activo en
+    el contexto. No incluye versículo ni botones; eso lo añade quien llama."""
+    hechos = db.actividad_de()
+    pend = tareas.get("pendientes", [])
+    lineas = ["🌙 <b>Resumen del dia</b>"]
+    if hechos:
+        lineas.append(f"✅ Hoy completaste <b>{len(hechos)}</b> cosa(s):")
+        lineas += [f"  • {h['texto'] or h['tipo']}" for h in hechos[:8]]
+    else:
+        lineas.append("Hoy no registraste avances; mañana será mejor día 🌱")
+    r = db.racha()
+    if r > 1:
+        lineas.append(f"🔥 Racha: {r} días seguidos avanzando ✊")
+    if pend:
+        lineas.append(f"\n📝 Quedan {len(pend)} pendiente(s) para mañana.")
+    lineas.append("😴 Descansa bien!")
+    lineas.append("\n¿Avanzó hoy en algo que no estuviera anotado, señor? "
+                  "Si me lo cuenta, lo sumaré a su progreso.")
+    return "\n".join(lineas)
+
+
 def api_telegram(metodo, params, token, reintentos=3):
     """Llama a la API de Telegram. Devuelve SIEMPRE un dict (nunca lanza),
     distinguiendo el tipo de fallo de red para reaccionar distinto:
@@ -492,40 +526,56 @@ def main():
             log.warning("No pude anexar el versículo matutino: %s", e)
         for cid in destinos:
             enviar_mensaje(msg, token, cid)
-        print(f"Resumen enviado a {len(destinos)} cuenta(s).")
+        # Usuarios externos que pidieron el parte (opt-in): cada uno recibe el
+        # SUYO, sin IA (ahorro de cuota y de carga en la Lenovo).
+        extras = chats_opt_in(cfg, _db)
+        for d in extras:
+            try:
+                with _db.como_dueno(d):
+                    m = construir_resumen(_db.cargar_tareas(), hoy)
+                    try:
+                        import versiculos
+                        v = versiculos.para_parte()
+                        if v:
+                            m += "\n\n— — —\n" + v
+                    except Exception:
+                        pass
+                enviar_mensaje(m, token, d)
+            except Exception as e:
+                log.warning("No pude enviar el parte matutino a %s: %s", d, e)
+        print(f"Resumen enviado a {len(destinos)} cuenta(s) "
+              f"+ {len(extras)} usuario(s) opt-in.")
     elif accion == "noche":
         import db as _db
-        hechos = _db.actividad_de()
-        pend = tareas.get("pendientes", [])
-        lineas = ["🌙 <b>Resumen del dia</b>"]
-        if hechos:
-            lineas.append(f"✅ Hoy completaste <b>{len(hechos)}</b> cosa(s):")
-            lineas += [f"  • {h['texto'] or h['tipo']}" for h in hechos[:8]]
-        else:
-            lineas.append("Hoy no registraste avances; mañana será mejor día 🌱")
-        r = _db.racha()
-        if r > 1:
-            lineas.append(f"🔥 Racha: {r} días seguidos avanzando ✊")
-        if pend:
-            lineas.append(f"\n📝 Quedan {len(pend)} pendiente(s) para mañana.")
-        lineas.append("😴 Descansa bien!")
-        lineas.append("\n¿Avanzó hoy en algo que no estuviera anotado, señor? "
-                      "Si me lo cuenta, lo sumaré a su progreso.")
-        msg = "\n".join(lineas)
-        try:
-            import versiculos
-            v = versiculos.para_parte()
-            if v:
-                msg += "\n\n— — —\n" + v
-        except Exception as e:
-            log.warning("No pude anexar el versículo nocturno: %s", e)
         botones_noche = [[
             {"text": "➕ Registrar avance", "callback_data": "progreso:add"},
             {"text": "Nada hoy", "callback_data": "progreso:no"},
         ]]
+
+        def _parte_noche(db_mod, tareas_d):
+            m = construir_noche(tareas_d, db_mod, hoy)
+            try:
+                import versiculos
+                v = versiculos.para_parte()
+                if v:
+                    m += "\n\n— — —\n" + v
+            except Exception as e:
+                log.warning("No pude anexar el versículo nocturno: %s", e)
+            return m
+
+        msg = _parte_noche(_db, tareas)
         for cid in destinos:
             enviar_mensaje(msg, token, cid, botones=botones_noche)
-        print("Resumen nocturno enviado.")
+        extras = chats_opt_in(cfg, _db)
+        for d in extras:
+            try:
+                with _db.como_dueno(d):
+                    m = _parte_noche(_db, _db.cargar_tareas())
+                enviar_mensaje(m, token, d, botones=botones_noche)
+            except Exception as e:
+                log.warning("No pude enviar el parte nocturno a %s: %s", d, e)
+        print(f"Resumen nocturno enviado a {len(destinos)} cuenta(s) "
+              f"+ {len(extras)} usuario(s) opt-in.")
     elif accion == "tarjeta":
         # Parte dominical: saludo + versículo y, acto seguido, la imagen con el
         # progreso semanal. La compone la MÁQUINA (no la IA).
@@ -552,7 +602,21 @@ def main():
             enviar_mensaje(msg, token, cid)
             if png:
                 enviar_foto(png, token, cid, caption="📊 <b>Su progreso semanal</b>")
-        print(f"Tarjeta semanal enviada a {len(destinos)} cuenta(s).")
+        # Usuarios externos opt-in: su propio saludo y su propia lámina.
+        import db as _db
+        extras = chats_opt_in(cfg, _db)
+        for d in extras:
+            try:
+                with _db.como_dueno(d):
+                    png_d = tarjeta.generar(dueno=d)
+                enviar_mensaje(msg, token, d)
+                if png_d:
+                    enviar_foto(png_d, token, d,
+                                caption="📊 <b>Su progreso semanal</b>")
+            except Exception as e:
+                log.warning("No pude enviar la tarjeta a %s: %s", d, e)
+        print(f"Tarjeta semanal enviada a {len(destinos)} cuenta(s) "
+              f"+ {len(extras)} usuario(s) opt-in.")
     elif accion == "recordatorios":
         texto = construir_recordatorios(tareas, hoy)
         if texto:

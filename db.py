@@ -256,6 +256,12 @@ def init_db():
                 creado TEXT NOT NULL,   -- ISO: snapshot de un 'borrar todo'
                 datos  TEXT NOT NULL    -- JSON con las filas borradas
             );
+            CREATE TABLE IF NOT EXISTS usuarios (
+                chat_id      TEXT PRIMARY KEY,  -- todo el que ha escrito al bot
+                primer_visto TEXT,
+                ultimo_visto TEXT,
+                partes       INTEGER            -- NULL=sin preguntar, 0=no, 1=si
+            );
             """
         )
         # Esquema VERSIONADO: las migraciones se aplican en orden y una sola vez.
@@ -426,6 +432,60 @@ def contar_usuarios():
         "externos": externos,
         "tiene_principal": DUENO_PRINCIPAL in duenos,
     }
+
+
+# --------------------------------------------------- registro de TODOS los chats
+# La tabla 'usuarios' anota a CUALQUIERA que escriba al bot, aunque no cree ni una
+# tarea (contar_usuarios solo veia a quien tenia datos; asi se nos escapaban los
+# que solo conversan). Tambien guarda si quiere el parte matutino/nocturno.
+def registrar_visto(chat_id):
+    """Anota (o actualiza) a un chat que acaba de escribir. Idempotente."""
+    cid = str(chat_id)
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    with conn() as c:
+        c.execute(
+            "INSERT INTO usuarios (chat_id, primer_visto, ultimo_visto) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET ultimo_visto=?",
+            (cid, ahora, ahora, ahora))
+
+
+def get_partes(chat_id):
+    """¿Quiere este chat el parte automatico? 1=si, 0=no, None=sin preguntar."""
+    with conn() as c:
+        r = c.execute("SELECT partes FROM usuarios WHERE chat_id=?",
+                      (str(chat_id),)).fetchone()
+    return None if r is None or r[0] is None else int(r[0])
+
+
+def set_partes(chat_id, quiere):
+    """Guarda la preferencia de partes automaticos de un chat (registrandolo
+    de paso si era la primera vez)."""
+    cid = str(chat_id)
+    val = 1 if quiere else 0
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    with conn() as c:
+        c.execute(
+            "INSERT INTO usuarios (chat_id, primer_visto, ultimo_visto, partes) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET partes=?",
+            (cid, ahora, ahora, val, val))
+
+
+def usuarios_con_partes():
+    """Chats que pidieron el parte automatico (partes=1)."""
+    with conn() as c:
+        return [r[0] for r in c.execute(
+            "SELECT chat_id FROM usuarios WHERE partes=1 ORDER BY chat_id")]
+
+
+def usuarios_registrados():
+    """Todos los chats que han escrito al bot, con su preferencia de partes.
+    Devuelve dicts {chat_id, primer_visto, ultimo_visto, partes}."""
+    with conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT chat_id, primer_visto, ultimo_visto, partes "
+            "FROM usuarios ORDER BY ultimo_visto DESC")]
 
 
 def borrar_todo(dueno=None, ahora=None):

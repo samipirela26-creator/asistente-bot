@@ -52,14 +52,16 @@ _LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "3.4"
+VERSION = "3.5"
 NOVEDADES = (
-    "<b>Parte de novedades — versión 3.4</b>\n\n"
-    "Me permito informarle de la mejora incorporada a su servicio:\n"
-    "• <b>Notas de voz:</b> ahora atiendo también sus audios. Envíeme una "
-    "nota de voz y la transcribiré para proceder igual que si la hubiera "
-    "escrito. Le confirmaré antes lo que entendí, por si conviene "
-    "corregir.\n\n"
+    "<b>Parte de novedades — versión 3.5</b>\n\n"
+    "Me permito informarle de las mejoras incorporadas a su servicio:\n"
+    "• <b>Parte a elección:</b> ahora ofrezco a cada usuario, una sola vez, "
+    "el parte automático de buenos días y buenas noches; quien lo desee lo "
+    "recibe, y puede cambiarlo cuando guste.\n"
+    "• <b>Registro de usuarios:</b> llevo cuenta de todos los que me escriben, "
+    "aunque aún no hayan anotado nada; el comando <b>usuarios</b> los muestra "
+    "a todos.\n\n"
     "Quedo, como siempre, a su entera disposición."
 )
 
@@ -1028,6 +1030,33 @@ def _onboarding(texto, cfg, token, chat_id):
     return False
 
 
+def _clave_partes_ofrecido(chat_id):
+    return "partes_ofrecido:" + str(chat_id)
+
+
+def _ofrecer_partes(cfg, token, chat_id):
+    """Una sola vez por chat, ofrece el parte automatico de buenos dias y buenas
+    noches (opt-in). No bloquea el mensaje en curso; solo manda la pregunta si
+    aun no se ha decidido. A las cuentas del dueno no se les pregunta: ya lo
+    reciben por configuracion."""
+    if es_admin(chat_id, cfg):
+        return
+    if db.get_partes(chat_id) is not None:
+        return  # ya respondio si/no
+    if db.estado_get(_clave_partes_ofrecido(chat_id)) == "1":
+        return  # ya se le pregunto; esperamos su respuesta
+    db.estado_set(_clave_partes_ofrecido(chat_id), "1")
+    A.enviar_mensaje(
+        "Permítame una cortesía, señor: ¿desea que cada mañana le haga llegar "
+        "su parte del día y, cada noche, un breve resumen al cerrar la jornada? "
+        "Quedará a su elección y podrá cambiarlo cuando guste.",
+        token, chat_id,
+        botones=[[
+            {"text": "🌅 Sí, se lo agradezco", "callback_data": "partes:si"},
+            {"text": "No, gracias", "callback_data": "partes:no"},
+        ]])
+
+
 def _clave_esperando_progreso(chat_id):
     return "esperando_progreso:" + str(chat_id)
 
@@ -1098,6 +1127,7 @@ def manejar_voz(msg, cfg, token, chat_id):
 # ----------------------------------------------------------- procesar mensaje
 def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
     db.metrica_inc("mensajes")
+    db.registrar_visto(chat_id)  # deja constancia de TODO el que escribe
     tareas = db.cargar_tareas()
 
     # 0.0) Presentacion: la primera vez, Larry pregunta el nombre del usuario.
@@ -1107,6 +1137,9 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
     # 0.05) Captura de avance del dia (tras la pregunta nocturna).
     if _capturar_progreso(texto, token, chat_id):
         return
+
+    # 0.07) Una sola vez, ofrece el parte automatico de la manana y la noche.
+    _ofrecer_partes(cfg, token, chat_id)
 
     # 0) Atajos con botones (menu minimalista).
     low = texto.strip().lower()
@@ -1136,20 +1169,26 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
     if low in ("usuarios", "/usuarios", "cuantos usuarios", "cuántos usuarios"):
         # Diagnostico tecnico: solo el creador lo ve.
         if es_admin(chat_id, cfg):
-            u = db.contar_usuarios()
-            externos = u["externos"]
-            lineas = ["<b>Usuarios con datos en el servidor</b>"]
-            lineas.append(f"  • Total de espacios: <b>{u['total']}</b>")
-            lineas.append("  • Sus cuentas personales (principal): "
-                          + ("sí" if u["tiene_principal"] else "no"))
-            lineas.append(f"  • Usuarios externos: <b>{len(externos)}</b>")
-            for d in externos:
-                nom = db.get_nombre(dueno=d)
-                etiqueta = f"<b>{esc(nom)}</b> ({esc(d)})" if nom else esc(d)
-                lineas.append(f"    • {etiqueta}")
-            mi_nombre = db.get_nombre(dueno=db.DUENO_PRINCIPAL)
-            if mi_nombre:
-                lineas.append(f"  • Usted figura como: <b>{esc(mi_nombre)}</b>")
+            registrados = db.usuarios_registrados()
+            propios = set(chat_ids_permitidos(cfg))
+            lineas = ["<b>Usuarios del bot</b>"]
+            lineas.append(f"  • Han escrito alguna vez: <b>{len(registrados)}</b>")
+            # Listado de todos los que han escrito (no solo los que crearon datos).
+            for u in registrados:
+                cid = str(u["chat_id"])
+                dueno = db.DUENO_PRINCIPAL if cid in propios else cid
+                nom = db.get_nombre(dueno=dueno)
+                etiqueta = f"<b>{esc(nom)}</b> ({esc(cid)})" if nom else esc(cid)
+                marca = "👑" if cid in propios else "·"
+                if u["partes"] == 1:
+                    parte = " 🌅 partes: sí"
+                elif u["partes"] == 0:
+                    parte = " · partes: no"
+                else:
+                    parte = " · partes: sin decidir"
+                lineas.append(f"    {marca} {etiqueta}{parte}")
+            quieren = len(db.usuarios_con_partes())
+            lineas.append(f"  • Reciben parte automático: <b>{quieren}</b>")
             A.enviar_mensaje("\n".join(lineas), token, chat_id)
         else:
             A.enviar_mensaje("Ese comando está reservado al administrador.",
@@ -1301,6 +1340,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
 def manejar_boton(cb, cfg, token, chat_id):
     """Procesa los botones inline (recordatorios, proyectos y menu)."""
     db.metrica_inc("botones")
+    db.registrar_visto(chat_id)
     data = cb.get("data", "")
     aviso = ""
     botones = None
@@ -1345,6 +1385,25 @@ def manejar_boton(cb, cfg, token, chat_id):
                     "segun mis proyectos e intereses", cfg, token, chat_id)
             else:  # lista, resumen, notas, recordatorios
                 manejar_mensaje(rid, cfg, token, chat_id)
+            return
+        if accion == "partes":
+            try:
+                A.api_telegram("answerCallbackQuery",
+                               {"callback_query_id": cb["id"], "text": ""}, token)
+            except Exception:
+                pass
+            db.set_partes(chat_id, rid == "si")
+            if rid == "si":
+                A.enviar_mensaje(
+                    "A su servicio, señor. Le saludaré cada mañana con su parte "
+                    "del día y cada noche con un breve resumen. Si en algún "
+                    "momento prefiere lo contrario, no tiene más que decírmelo.",
+                    token, chat_id)
+            else:
+                A.enviar_mensaje(
+                    "Entendido, señor. No le importunaré con partes "
+                    "automáticos. Quedo a su disposición cuando los desee.",
+                    token, chat_id)
             return
         if accion == "progreso":
             try:
