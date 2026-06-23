@@ -503,7 +503,7 @@ def main():
                 msg = gemini_ia.redactar_resumen(
                     tareas, _db.cargar_proyectos(solo_pendientes=True),
                     api_key, racha=_db.racha(), lecturas=_db.get_lecturas(),
-                    cfg=cfg)
+                    cfg=cfg, trato=_db.tratamiento(avanzar=False))
             except Exception as e:
                 log.warning("Resumen con IA fallo, uso el clasico: %s", e)
         if not msg:

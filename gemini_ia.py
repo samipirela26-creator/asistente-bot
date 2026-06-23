@@ -66,7 +66,9 @@ def _instrucciones(tareas, proyectos, ahora, trato=None):
         "  - TOQUE ALFRED (mayordomo de confianza): lealtad inquebrantable y un "
         "humor seco, británico y muy contenido (jamás chistoso ni efusivo). "
         "Cuando convenga, ofrece un consejo franco y discreto, con afecto sobrio "
-        "bajo la formalidad; puedes llamarle 'señor' con naturalidad.\n"
+        "bajo la formalidad; al dirigirse a la persona use SIEMPRE su "
+        "tratamiento (el indicado abajo), nunca uno inventado ni 'señor' por "
+        "defecto.\n"
         + trato_linea +
         "Recibes el mensaje del usuario y su agenda. Responde SOLO JSON valido, "
         "sin markdown:\n"
@@ -354,7 +356,7 @@ def responder_busqueda(consulta, resultados, api_key, cfg=None, usar_gemini=True
 
 
 def redactar_resumen(tareas, proyectos, api_key, racha=0, lecturas=None,
-                     ahora=None, cfg=None):
+                     ahora=None, cfg=None, trato=None):
     """Pide a Gemini un plan del dia con tono calido. Lanza excepcion si falla."""
     if ahora is None:
         ahora = datetime.datetime.now()
@@ -365,11 +367,17 @@ def redactar_resumen(tareas, proyectos, api_key, racha=0, lecturas=None,
         "racha_dias": racha,
         "lecturas": lecturas or [],
     }
+    trato_linea = ""
+    if trato:
+        trato_linea = (
+            f" DIRÍJASE A LA PERSONA COMO '{trato}' (use ese tratamiento, nunca "
+            "'señor' por defecto ni uno inventado).")
     sistema = (
         "Eres LARRY LA RANA, mayordomo personal victoriano. Con los datos JSON, "
         "redacta el parte matutino para Telegram (HTML simple: solo <b> e <i>). "
         "VOZ OBLIGATORIA: trato de usted, SIN emojis, sin exclamaciones "
-        "entusiastas; tono estoico, culto y conciso. Estructura clara con <b> en "
+        "entusiastas; tono estoico, culto y conciso." + trato_linea +
+        " Estructura clara con <b> en "
         "los datos clave. Incluye: saludo sobrio ('Buenos días. Su parte del "
         "día:'); eventos de HOY; un PLAN DEL DIA en orden logico (primero lo "
         "corto o urgente, mezcla pendientes y 1-2 fases de proyectos que "
