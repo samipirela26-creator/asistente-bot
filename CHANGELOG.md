@@ -4,6 +4,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/) y
 versionado [SemVer](https://semver.org/lang/es/). El bot es stdlib pura en
 runtime; `ruff`/`mypy` son solo de desarrollo/CI.
 
+## [3.6.0] — 2026-06-22
+
+### Añadido
+- **Devolver un avance de proyecto**: al completar una fase, Larry ofrece un
+  botón **↩️ Devolver avance** que la regresa a pendiente y borra ese registro
+  de actividad del día para no inflar la racha (`db.descompletar_fase`,
+  callback `proy_undo`). Pensado para deshacer un toque accidental.
+- **Botón de partes en el menú** (**🌅 Buenos días/noches**) para activar o
+  desactivar el parte automático cuando se quiera, y nueva acción
+  `asistente.py preguntar-partes` que ofrece el parte a todos los usuarios
+  registrados que aún no han decidido.
+
 ## [3.5.0] — 2026-06-22
 
 ### Añadido

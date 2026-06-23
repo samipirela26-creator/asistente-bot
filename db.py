@@ -744,6 +744,26 @@ def completar_fase(proyecto, dueno=None):
     return dict(actual), (dict(siguiente) if siguiente else None)
 
 
+def descompletar_fase(fase_id, dueno=None):
+    """Devuelve una fase ya marcada como hecha al estado pendiente (deshacer un
+    avance). Tambien borra el ultimo registro de actividad 'fase' con ese
+    titulo del dia de hoy para no inflar la racha. Devuelve la fase o None."""
+    with conn() as c:
+        f = c.execute(
+            "SELECT fa.* FROM fases fa JOIN proyectos p ON fa.proyecto_id=p.id "
+            "WHERE fa.id=? AND p.dueno=? AND fa.hecho=1", (fase_id, _d(dueno))
+        ).fetchone()
+        if not f:
+            return None
+        c.execute("UPDATE fases SET hecho=0 WHERE id=?", (fase_id,))
+        c.execute(
+            "DELETE FROM actividad WHERE rowid IN (SELECT rowid FROM actividad "
+            "WHERE tipo='fase' AND texto=? AND fecha=? AND dueno=? ORDER BY "
+            "rowid DESC LIMIT 1)",
+            (f["titulo"], datetime.date.today().isoformat(), _d(dueno)))
+    return dict(f)
+
+
 def cargar_proyectos(solo_pendientes=True, dueno=None):
     """Estructura de proyectos con sus fases, para mostrar o pasar a la IA."""
     out = []

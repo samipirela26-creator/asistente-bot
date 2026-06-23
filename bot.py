@@ -52,7 +52,7 @@ _LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "3.5"
+VERSION = "3.6"
 NOVEDADES = (
     "<b>Parte de novedades — versión 3.5</b>\n\n"
     "Me permito informarle de las mejoras incorporadas a su servicio:\n"
@@ -1452,8 +1452,17 @@ def manejar_boton(cb, cfg, token, chat_id):
                     aviso += f"\n      🔥 Racha: {r} días seguidos!"
                 aviso += (f"\n      ▶️ Sigue: <i>{esc(sig['titulo'])}</i>" if sig
                           else "\n      🎉 <b>Proyecto terminado!</b>")
+                botones = [[{"text": "↩️ Devolver avance",
+                             "callback_data": f"proy_undo:{comp['id']}"}]]
             else:
                 aviso = "🤔 Ese proyecto no tiene fases pendientes."
+        elif accion == "proy_undo":
+            f = db.descompletar_fase(int(rid))
+            if f:
+                aviso = (f"↩️ <b>Avance devuelto:</b> {esc(f['titulo'])}\n"
+                         "      La fase vuelve a estar pendiente, señor.")
+            else:
+                aviso = "🤷 Ese avance ya no se puede devolver."
         elif accion == "proy_next":
             f = db.fase_actual(rid)
             if f:

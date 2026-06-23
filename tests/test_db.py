@@ -105,6 +105,20 @@ class TestProyectos(BaseDB):
         self.assertEqual(sig["titulo"], "pintar")
         self.assertEqual(db.progreso_proyecto("casa"), (1, 2))
 
+    def test_devolver_avance(self):
+        db.add_fase("casa", "limpiar")
+        comp, _ = db.completar_fase("casa")
+        db.log_actividad("fase", comp["titulo"])  # como hace el bot al avanzar
+        self.assertEqual(db.progreso_proyecto("casa"), (1, 1))
+        self.assertEqual(len(db.actividad_de()), 1)
+        f = db.descompletar_fase(comp["id"])
+        self.assertEqual(f["titulo"], "limpiar")
+        # La fase vuelve a pendiente y el avance se borra de la actividad.
+        self.assertEqual(db.progreso_proyecto("casa"), (0, 1))
+        self.assertEqual(db.actividad_de(), [])
+        # Devolver dos veces no revienta ni hace nada.
+        self.assertIsNone(db.descompletar_fase(comp["id"]))
+
 
 class TestIntereses(BaseDB):
     def test_add_y_borrar(self):
