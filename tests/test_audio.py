@@ -80,12 +80,22 @@ class DescargarArchivoTest(unittest.TestCase):
 
 class ManejarVozTest(unittest.TestCase):
     def setUp(self):
+        import db
+        import tempfile
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig_db = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
         self.enviados = []
         self._env = A.enviar_mensaje
         bot.A.enviar_mensaje = lambda texto, *a, **k: self.enviados.append(texto)
 
     def tearDown(self):
+        import db
         bot.A.enviar_mensaje = self._env
+        db.DB_PATH = self._orig_db
+        os.unlink(self.ruta)
 
     def test_sin_clave_avisa_con_cortesia(self):
         cfg = {"gemini_api_key": ""}

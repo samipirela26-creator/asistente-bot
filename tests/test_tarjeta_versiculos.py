@@ -46,6 +46,17 @@ class VersiculosTest(unittest.TestCase):
 
 
 class TarjetaTest(unittest.TestCase):
+    def setUp(self):
+        fd, self.ruta = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db.DB_PATH
+        db.DB_PATH = self.ruta
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self._orig
+        os.unlink(self.ruta)
+
     def test_genera_png_valido(self):
         png = tarjeta.generar()
         self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
