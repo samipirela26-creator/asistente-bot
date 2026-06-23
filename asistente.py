@@ -12,6 +12,7 @@ Uso:
     python asistente.py recordatorios-> envia solo los recordatorios proximos
     python asistente.py chatid       -> te ayuda a encontrar tu chat_id
     python asistente.py prueba       -> envia un mensaje de prueba
+    python asistente.py preguntar-partes -> ofrece el parte automatico a todos
 """
 
 import json
@@ -625,6 +626,27 @@ def main():
             print("Recordatorios enviados.")
         else:
             print("No hay recordatorios para hoy/mañana.")
+    elif accion == "preguntar-partes":
+        import db as _db
+        propios = {str(c) for c in todos_los_chats(cfg)}
+        pregunta = (
+            "Permítame una cortesía, señor: ¿desea que cada mañana le haga "
+            "llegar su parte del día y, cada noche, un breve resumen al cerrar "
+            "la jornada? Quedará a su elección y podrá cambiarlo cuando guste.")
+        botones = [[
+            {"text": "🌅 Sí, se lo agradezco", "callback_data": "partes:si"},
+            {"text": "No, gracias", "callback_data": "partes:no"},
+        ]]
+        enviados = 0
+        for u in _db.usuarios_registrados():
+            cid = str(u.get("chat_id"))
+            if cid in propios:
+                continue  # las cuentas del dueño ya lo reciben
+            if _db.get_partes(cid) is not None:
+                continue  # ya decidió sí/no
+            enviar_mensaje(pregunta, token, cid, botones=botones)
+            enviados += 1
+        print(f"Pregunta de partes enviada a {enviados} usuario(s).")
     else:
         print(__doc__)
 

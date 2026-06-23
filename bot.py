@@ -263,6 +263,7 @@ def botones_menu():
          {"text": "❓ Ayuda", "callback_data": "menu:ayuda"}],
         [{"text": "📊 Mi progreso", "callback_data": "menu:tarjeta"},
          {"text": "✏️ Mi nombre", "callback_data": "menu:nombre"}],
+        [{"text": "🌅 Buenos días/noches", "callback_data": "menu:partes"}],
     ]
 
 
@@ -1379,6 +1380,22 @@ def manejar_boton(cb, cfg, token, chat_id):
                     log.warning("Fallo al generar la tarjeta: %s", e)
                     A.enviar_mensaje("No pude componer la tarjeta ahora, señor.",
                                      token, chat_id)
+            elif rid == "partes":
+                estado = db.get_partes(chat_id)
+                if estado == 1:
+                    cab = ("En este momento le hago llegar su parte cada mañana "
+                           "y un resumen cada noche. ¿Desea mantenerlo?")
+                else:
+                    cab = ("¿Desea que cada mañana le haga llegar su parte del "
+                           "día y, cada noche, un breve resumen al cerrar la "
+                           "jornada? Quedará a su elección.")
+                A.enviar_mensaje(
+                    cab, token, chat_id,
+                    botones=[[
+                        {"text": "🌅 Sí, se lo agradezco",
+                         "callback_data": "partes:si"},
+                        {"text": "No, gracias", "callback_data": "partes:no"},
+                    ]])
             elif rid == "sugerencia":
                 manejar_mensaje(
                     "No tengo nada que hacer ahora, sugiereme algo concreto "
