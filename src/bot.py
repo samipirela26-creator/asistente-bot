@@ -54,16 +54,19 @@ _LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
 # Sube este numero cada vez que cambies el bot y escribe que cambio en NOVEDADES.
 # Al arrancar, si la version es nueva, el bot te avisa por Telegram una sola vez.
-VERSION = "3.6"
+VERSION = "3.7"
 NOVEDADES = (
-    "<b>Parte de novedades — versión 3.5</b>\n\n"
+    "<b>Parte de novedades — versión 3.7</b>\n\n"
     "Me permito informarle de las mejoras incorporadas a su servicio:\n"
-    "• <b>Parte a elección:</b> ahora ofrezco a cada usuario, una sola vez, "
-    "el parte automático de buenos días y buenas noches; quien lo desee lo "
-    "recibe, y puede cambiarlo cuando guste.\n"
-    "• <b>Registro de usuarios:</b> llevo cuenta de todos los que me escriben, "
-    "aunque aún no hayan anotado nada; el comando <b>usuarios</b> los muestra "
-    "a todos.\n\n"
+    "• <b>Avances por categoría:</b> cuando me cuente su jornada de noche (o "
+    "en una nota larga, aunque no use el botón), separo sus avances y les "
+    "asigno una categoría con IA. Su tarjeta semanal ahora incluye un "
+    "desglose por categoría.\n"
+    "• <b>Horario de la tarjeta a su elección:</b> en el menú, "
+    "<b>🕒 Horario de tarjeta</b> le deja elegir el día y la hora en que "
+    "desea recibir su imagen de progreso, en vez de estar fijo el domingo.\n"
+    "• <b>Notas de voz más fieles:</b> el eco de lo que le entendí ya no se "
+    "corta a mitad de frase.\n\n"
     "Quedo, como siempre, a su entera disposición."
 )
 
