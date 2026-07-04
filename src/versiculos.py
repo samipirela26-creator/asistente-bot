@@ -10,7 +10,9 @@ import random
 
 log = logging.getLogger("versiculos")
 
-_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "versiculos")
+# versiculos.py vive en src/; la carpeta versiculos/ vive un nivel arriba, en
+# la raiz del repo -- de ahi el dirname() doble.
+_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "versiculos")
 
 
 def _parsear(texto):

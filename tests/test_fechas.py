@@ -10,7 +10,8 @@ import sys
 import unittest
 import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 import fechas  # noqa: E402
 
 # 'Ahora' fijo para que los tests sean deterministas: jueves 11/06/2026, 09:00.

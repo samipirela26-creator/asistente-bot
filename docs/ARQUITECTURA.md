@@ -24,6 +24,25 @@ se usan únicamente en CI/desarrollo, nunca en tiempo de ejecución.
      cada 5 min  chequear_salud.py → alerta si el latido se enfría
 ```
 
+## Estructura del repo
+
+```
+asistente/
+├── src/       módulos Python (bot.py, db.py, asistente.py, ...) — ver tabla abajo
+├── docs/      este archivo y el resto de la documentación
+├── scripts/   instaladores (systemd) y mantenimiento (backup offsite)
+├── systemd/   .timer que los instaladores copian tal cual
+├── tests/     suite de unittest
+└── config.json, tareas.json, agenda.db, respaldos/, versiculos/   datos en la raíz
+```
+Los módulos en `src/` se importan entre sí por nombre (`import db`, `import fechas`,
+etc.) sin paquete ni imports relativos: alcanza con que vivan juntos en `src/`,
+porque Python agrega el directorio del script que se ejecuta a `sys.path`. Los
+que ubican datos hermanos (`db.py`, `asistente.py`, `bot.py`, `versiculos.py`)
+calculan `BASE_DIR` subiendo un nivel desde `src/` para seguir encontrando
+`agenda.db`, `config.json`, `tareas.json`, `.bot.lock` y `versiculos/` en la
+raíz del repo.
+
 ## Módulos
 
 | Archivo | Responsabilidad |

@@ -404,3 +404,52 @@ def redactar_resumen(tareas, proyectos, api_key, racha=0, lecturas=None,
             sistema, [{"role": "user",
                        "content": json.dumps(datos, ensure_ascii=False)}],
             cfg, json_mode=False).strip()
+
+
+def categorizar_avances(texto, api_key, categorias_previas=None, cfg=None, usar_gemini=True):
+    """Separa el parte nocturno del usuario en avances individuales, cada uno
+    con una categoria corta (2-3 palabras) que la IA elige libremente. Reusa
+    nombres de 'categorias_previas' cuando el avance encaja, en vez de inventar
+    variantes del mismo tema. Devuelve una lista de {'texto':...,'categoria':...}
+    (nunca vacia si 'texto' no esta vacio). Lanza excepcion si falla."""
+    previas = ", ".join(categorias_previas or []) or "(ninguna todavia)"
+    sistema = (
+        "Eres un clasificador de bitacoras personales en español. Recibes el "
+        "mensaje de un usuario contando en QUE avanzo hoy (puede mezclar varios "
+        "temas en un solo mensaje). Divide el mensaje en avances individuales y "
+        "asigna a CADA UNO una categoria corta (1-3 palabras, con mayuscula "
+        "inicial, ej: 'Trabajo', 'Estudio', 'Casa', 'Salud'). "
+        "Reutiliza EXACTAMENTE una de estas categorias ya usadas por el usuario "
+        f"si el avance encaja ahi: {previas}. Solo inventa una categoria nueva "
+        "si de verdad no encaja en ninguna. "
+        'Responde SOLO JSON valido, sin markdown: '
+        '{"avances":[{"texto":"...","categoria":"..."}]}\n'
+        "Si el mensaje es un solo tema, devuelve un unico avance. Nunca "
+        "devuelvas la lista vacia si el mensaje tiene contenido."
+    )
+    cuerpo = {
+        "system_instruction": {"parts": [{"text": sistema}]},
+        "contents": [{"role": "user", "parts": [{"text": texto}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 1024,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }
+    if usar_gemini:
+        try:
+            salida = _llamar(cuerpo, api_key)
+        except Exception as e:
+            if getattr(e, "code", None) == 429:
+                _pausar_gemini()
+            salida = _llamar_respaldo(
+                sistema, [{"role": "user", "content": texto}], cfg)
+    else:
+        salida = _llamar_respaldo(sistema, [{"role": "user", "content": texto}], cfg)
+    avances = json.loads(salida).get("avances", [])
+    return [
+        {"texto": (a.get("texto") or "").strip()[:200],
+         "categoria": (a.get("categoria") or "General").strip()[:40]}
+        for a in avances if (a.get("texto") or "").strip()
+    ]

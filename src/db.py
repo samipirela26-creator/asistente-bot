@@ -16,7 +16,9 @@ import datetime
 import threading
 import contextlib
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# db.py vive en src/; los datos (agenda.db, tareas.json, respaldos/) viven un
+# nivel arriba, en la raiz del repo -- de ahi el dirname() doble.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "agenda.db")
 JSON_VIEJO = os.path.join(BASE_DIR, "tareas.json")
 
@@ -122,7 +124,9 @@ def conn():
 #   2 = recordatorios.hora_explicita: marca si el usuario fijo la hora a
 #       proposito. Si es 0, una entrega que caiga de madrugada se difiere a la
 #       manana (evita avisos sorpresa a las 2am que nadie pidio).
-SCHEMA_VERSION = 2
+#   3 = actividad.categoria: etiqueta libre (la IA la elige al registrar un
+#       avance nocturno; una fase completada usa el nombre de su proyecto).
+SCHEMA_VERSION = 3
 
 
 def schema_version():
@@ -178,8 +182,13 @@ def _aplicar_migraciones(c, desde):
         if "hora_explicita" not in cols:
             c.execute("ALTER TABLE recordatorios "
                       "ADD COLUMN hora_explicita INTEGER DEFAULT 0")
-    # Migracion 3 (futura): añade aqui un bloque `if desde < 3:` y sube
-    # SCHEMA_VERSION a 3. No reordenes ni borres los bloques anteriores.
+    if desde < 3:
+        # --- Migracion 3: categoria del avance ---
+        cols = [r[1] for r in c.execute("PRAGMA table_info(actividad)")]
+        if "categoria" not in cols:
+            c.execute("ALTER TABLE actividad ADD COLUMN categoria TEXT")
+    # Migracion 4 (futura): añade aqui un bloque `if desde < 4:` y sube
+    # SCHEMA_VERSION a 4. No reordenes ni borres los bloques anteriores.
 
 
 def init_db():
@@ -968,10 +977,11 @@ def get_lecturas(dueno=None):
 
 
 # ------------------------------------------------------- actividad y racha
-def log_actividad(tipo, texto="", dueno=None):
+def log_actividad(tipo, texto="", dueno=None, categoria=None):
     with conn() as c:
-        c.execute("INSERT INTO actividad (fecha, tipo, texto, dueno) VALUES (?, ?, ?, ?)",
-                  (datetime.date.today().isoformat(), tipo, texto, _d(dueno)))
+        c.execute("INSERT INTO actividad (fecha, tipo, texto, dueno, categoria) "
+                  "VALUES (?, ?, ?, ?, ?)",
+                  (datetime.date.today().isoformat(), tipo, texto, _d(dueno), categoria))
 
 
 def actividad_de(fecha=None, dueno=None):
@@ -979,6 +989,31 @@ def actividad_de(fecha=None, dueno=None):
     with conn() as c:
         return [dict(r) for r in c.execute(
             "SELECT * FROM actividad WHERE fecha=? AND dueno=?", (f, _d(dueno)))]
+
+
+def categorias_recientes(dueno=None, dias=30):
+    """Nombres de categoria usados en los ultimos 'dias', mas frecuentes primero.
+    Sirve de pista para que la IA reutilice nombres en vez de inventar variantes."""
+    desde = (datetime.date.today() - datetime.timedelta(days=dias)).isoformat()
+    with conn() as c:
+        filas = c.execute(
+            "SELECT categoria, COUNT(*) AS n FROM actividad "
+            "WHERE fecha >= ? AND dueno=? AND categoria IS NOT NULL AND categoria != '' "
+            "GROUP BY categoria ORDER BY n DESC LIMIT 10",
+            (desde, _d(dueno)))
+        return [r["categoria"] for r in filas]
+
+
+def actividad_por_categoria(desde, hasta, dueno=None):
+    """Conteo de avances entre 'desde' y 'hasta' (date, inclusive), agrupados
+    por categoria. Sin categoria asignada cae bajo 'Sin categoria'."""
+    with conn() as c:
+        filas = c.execute(
+            "SELECT COALESCE(NULLIF(categoria, ''), 'Sin categoria') AS cat, "
+            "COUNT(*) AS n FROM actividad WHERE fecha BETWEEN ? AND ? AND dueno=? "
+            "GROUP BY cat ORDER BY n DESC",
+            (desde.isoformat(), hasta.isoformat(), _d(dueno)))
+        return [(r["cat"], r["n"]) for r in filas]
 
 
 def racha(dueno=None):
@@ -1040,6 +1075,55 @@ def estado_set(clave, valor):
         c.execute("INSERT INTO estado (clave, valor) VALUES (?, ?) "
                   "ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
                   (clave, str(valor)))
+
+
+# --------------------------------------------------- horario de la tarjeta
+def _clave_horario_tarjeta(dueno=None):
+    return "tarjeta_horario:" + _d(dueno)
+
+
+def _clave_tarjeta_enviada(dueno=None):
+    return "tarjeta_enviada:" + _d(dueno)
+
+
+def get_horario_tarjeta(dueno=None):
+    """(dia_semana, 'HH:MM') elegido por el usuario para la tarjeta semanal.
+    dia_semana: 0=lunes .. 6=domingo. Por defecto: domingo a las 09:00."""
+    v = estado_get(_clave_horario_tarjeta(dueno))
+    if not v or "|" not in v:
+        return 6, "09:00"
+    dia, hora = v.split("|", 1)
+    try:
+        return int(dia), hora
+    except ValueError:
+        return 6, "09:00"
+
+
+def set_horario_tarjeta(dia, hora, dueno=None):
+    estado_set(_clave_horario_tarjeta(dueno), f"{dia}|{hora}")
+
+
+def tarjeta_pendiente_hoy(dueno=None, ahora=None):
+    """True si YA toca enviar la tarjeta segun el horario configurado y
+    todavia no se envio hoy. La ventana es de 1h para tolerar que el timer
+    de sondeo (cada 15 min) no coincida al segundo con la hora elegida."""
+    ahora = ahora or datetime.datetime.now()
+    dia, hora = get_horario_tarjeta(dueno)
+    if ahora.weekday() != dia:
+        return False
+    try:
+        h, m = (int(x) for x in hora.split(":"))
+    except ValueError:
+        h, m = 9, 0
+    objetivo = ahora.replace(hour=h, minute=m, second=0, microsecond=0)
+    if not (objetivo <= ahora <= objetivo + datetime.timedelta(hours=1)):
+        return False
+    return estado_get(_clave_tarjeta_enviada(dueno)) != ahora.date().isoformat()
+
+
+def marcar_tarjeta_enviada(dueno=None, ahora=None):
+    ahora = ahora or datetime.datetime.now()
+    estado_set(_clave_tarjeta_enviada(dueno), ahora.date().isoformat())
 
 
 # ------------------------------------------------------------- uso de la IA

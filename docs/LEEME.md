@@ -31,7 +31,9 @@ proyectos por fases y sugerencias segun tu momento.
 | `db.py` | Base de datos SQLite (`agenda.db`) |
 | `asistente.py` | Resumen diario y utilidades (sacar chat_id, prueba) |
 | `config.json` | Token, las dos cuentas y la API key |
-| `agenda-bot.service` | Arranque automatico al encender la PC |
+| `scripts/instalar-timers.sh` | Genera e instala el arranque automatico (systemd) al encender la PC |
+
+Todos los `.py` de la tabla viven en `src/` (ej. `src/bot.py`); `config.json` vive en la raiz del repo.
 
 ## Como se maneja (servicio)
 
@@ -41,8 +43,9 @@ systemctl --user restart agenda-bot.service   # reiniciar tras cambios
 systemctl --user status agenda-bot.service    # ver estado
 ```
 
-Para probar a mano: para el servicio, ejecuta `python bot.py` (Ctrl+C para
-salir) y al terminar vuelve a dejar el servicio encendido.
+Para probar a mano: para el servicio, ejecuta (desde la raiz del repo)
+`python3 src/bot.py` (Ctrl+C para salir) y al terminar vuelve a dejar el
+servicio encendido.
 
 ## Como hablarle
 
@@ -63,9 +66,9 @@ funciona usa los comandos basicos. La cuota gratuita se repone sola cada dia.
 ## Configuracion inicial (resumen)
 
 1. Crear bot con **@BotFather** (`/newbot`) y copiar el token a `config.json`.
-2. Sacar chat_id: escribirle al bot y ejecutar `python asistente.py chatid`;
-   pegar el numero en `config.json`.
-3. Probar: `python asistente.py prueba`.
+2. Sacar chat_id: escribirle al bot y ejecutar `python3 src/asistente.py chatid`
+   (desde la raiz del repo); pegar el numero en `config.json`.
+3. Probar: `python3 src/asistente.py prueba`.
 4. La API key de Gemini va en `gemini_api_key` de `config.json`
    (gratis en aistudio.google.com).
 
@@ -81,7 +84,7 @@ funciona usa los comandos basicos. La cuota gratuita se repone sola cada dia.
 - **Plan del dia**: el resumen matutino ahora lo redacta la IA con un orden
   sugerido (si falla, usa el resumen clasico).
 - **Lecturas**: "quede en Juan 5" y luego "por donde iba?".
-- **Resumen nocturno**: `python asistente.py noche` (programable con cron).
+- **Resumen nocturno**: `python3 src/asistente.py noche` (programable con cron).
 - **Notas rapidas**: "anota idea X", luego "notas" o "que anote de X?".
 - **Memoria**: recuerda los ultimos 10 mensajes; entiende "mejor ponlo a las 5".
 - **Respaldo automatico diario** de agenda.db en `respaldos/` (guarda 7).

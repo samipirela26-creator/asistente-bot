@@ -48,7 +48,7 @@ el 409 solo aparece si son **máquinas distintas**.
 - Si el usuario **pidió** esa hora exacta (`hora_explicita=1`), suena a su hora.
 **Si insiste de más:** toca **✅ Hecho** en el mensaje para apagarlo, o:
 ```bash
-python3 -c "import db; \
+PYTHONPATH=src python3 -c "import db; \
   [db.marcar_enviado(dict(r)) for r in db.recordatorios_vencidos()]"   # con cuidado
 ```
 
@@ -87,7 +87,7 @@ ls -1 ~/respaldos-lenovo/
 # Copiar la más reciente a la máquina nueva y restaurarla como agenda.db
 scp ~/respaldos-lenovo/agenda-AAAA-MM-DD.db usuario@maquina-nueva:/ruta/asistente/agenda.db
 ```
-Instalar el offsite en el equipo receptor: `bash instalar-respaldo-offsite.sh`
+Instalar el offsite en el equipo receptor: `bash scripts/instalar-respaldo-offsite.sh`
 (requiere SSH sin contraseña hacia el servidor). Forzar una corrida ahora:
 `systemctl --user start agenda-respaldo-offsite.service`.
 
@@ -102,5 +102,5 @@ deben subirse. El repo `asistente-bot` es **privado**; el Lenovo usa una
 ## Verificación rápida tras tocar algo
 ```bash
 python3 -m unittest discover -s tests
-python3 -c "import bot"
+PYTHONPATH=src python3 -c "import bot"
 ```

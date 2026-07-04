@@ -1,0 +1,9 @@
+[Unit]
+Description=Sondeo de tarjeta de progreso (horario elegido por el usuario con boton)
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

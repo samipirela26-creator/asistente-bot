@@ -17,8 +17,10 @@ fi
 git pull --quiet --ff-only
 
 # 4) Red de seguridad: que el bot al menos importe antes de reiniciar.
-#    Asi un push roto no deja el bot caido.
-if python3 -c "import bot" 2>/tmp/agenda-update.log; then
+#    Asi un push roto no deja el bot caido. El codigo vive en src/, de ahi
+#    el PYTHONPATH (este script se queda en la raiz a proposito: es el
+#    ExecStart ya grabado en la unidad systemd instalada).
+if PYTHONPATH=src python3 -c "import bot" 2>/tmp/agenda-update.log; then
     systemctl --user restart agenda-bot.service
     echo "$(date '+%F %T') actualizado y bot reiniciado"
 else

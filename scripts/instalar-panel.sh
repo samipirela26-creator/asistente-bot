@@ -2,12 +2,13 @@
 # Pone el panel de estado (panel.py) en la pantalla fisica del equipo (tty1).
 # Pensado para el Lenovo headless: al abrir la tapa ves RAM/CPU/disco/temp y el
 # bot, con colores. Genera el servicio con la ruta/usuario REALES de esta maquina.
-# Uso (en el equipo que muestra el panel):  sudo bash instalar-panel.sh
+# Uso (en el equipo que muestra el panel):  sudo bash scripts/instalar-panel.sh
 set -e
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Corre con sudo:  sudo bash instalar-panel.sh"; exit 1
+    echo "Corre con sudo:  sudo bash scripts/instalar-panel.sh"; exit 1
 fi
-AQUI="$(cd "$(dirname "$0")" && pwd)"
+# Este script vive en scripts/; AQUI es la raiz del repo (un nivel arriba).
+AQUI="$(cd "$(dirname "$0")/.." && pwd)"
 USUARIO="${SUDO_USER:-$USER}"
 UID_USR="$(id -u "$USUARIO")"
 
@@ -23,7 +24,7 @@ User=$USUARIO
 Environment=XDG_RUNTIME_DIR=/run/user/$UID_USR
 Environment=TERM=linux
 WorkingDirectory=$AQUI
-ExecStart=/usr/bin/python3 $AQUI/panel.py
+ExecStart=/usr/bin/python3 $AQUI/src/panel.py
 StandardInput=tty
 StandardOutput=tty
 TTYPath=/dev/tty1

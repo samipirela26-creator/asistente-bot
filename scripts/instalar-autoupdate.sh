@@ -2,9 +2,13 @@
 # Instala la AUTO-ACTUALIZACION del bot desde GitHub.
 # Genera las unidades de systemd con la ruta REAL de esta maquina, asi
 # funciona igual en la Dell o en el Lenovo sin editar nada a mano.
-# Uso (en la maquina que hospeda el bot):  bash instalar-autoupdate.sh
+# Uso (en la maquina que hospeda el bot):  bash scripts/instalar-autoupdate.sh
 set -e
-AQUI="$(cd "$(dirname "$0")" && pwd)"
+# Este script vive en scripts/; AQUI es la raiz del repo (un nivel arriba).
+# actualizar.sh en sí se queda en la raiz (no en scripts/): es el ExecStart ya
+# grabado en la unidad systemd instalada, y moverlo la rompería sin forma de
+# auto-repararse.
+AQUI="$(cd "$(dirname "$0")/.." && pwd)"
 chmod +x "$AQUI/actualizar.sh"
 mkdir -p ~/.config/systemd/user
 

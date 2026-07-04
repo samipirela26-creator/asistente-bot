@@ -149,8 +149,10 @@ def _datos(dueno, hoy):
     pct = (hechas_tot / total_tot) if total_tot else 0.0
     racha = db.racha(dueno=dueno)
     hechos_hoy = len(db.actividad_de(dueno=dueno))
+    lunes = hoy - datetime.timedelta(days=hoy.weekday())
+    categorias = db.actividad_por_categoria(lunes, hoy, dueno=dueno)[:5]
     return {"pct": pct, "proyectos": proyectos[:5], "racha": racha,
-            "hechos_hoy": hechos_hoy, "hoy": hoy}
+            "hechos_hoy": hechos_hoy, "hoy": hoy, "categorias": categorias}
 
 
 # ------------------------------------------------------------------ dibujo
@@ -158,7 +160,7 @@ def generar(dueno=None, hoy=None):
     """Devuelve los bytes de un PNG con la tarjeta de progreso."""
     hoy = hoy or datetime.date.today()
     d = _datos(dueno, hoy)
-    W, H = 600, 360
+    W, H = 600, 460
     lz = _Lienzo(W, H, _CREMA)
 
     _texto(lz, "PROGRESO", 30, 26, _TINTA, 4)
@@ -193,6 +195,21 @@ def generar(dueno=None, hoy=None):
     else:
         _texto(lz, "SIN PROYECTOS", bx, by + 20, _GRIS, 2)
         _texto(lz, "AUN", bx, by + 50, _GRIS, 2)
+
+    # Avances de la semana agrupados por categoria (la IA las asigna al
+    # capturar el parte nocturno; las fases usan el nombre del proyecto).
+    cy2 = 340
+    _texto(lz, "AVANCES POR CATEGORIA", 30, cy2, _TINTA, 2)
+    if d["categorias"]:
+        maximo = max(n for _, n in d["categorias"]) or 1
+        for i, (cat, n) in enumerate(d["categorias"]):
+            y = cy2 + 30 + i * 22
+            _texto(lz, cat[:14], 30, y, _TINTA, 1)
+            lz.rect(180, y, 180 + 320, y + 12, _HUECO)
+            lz.rect(180, y, 180 + int(320 * n / maximo), y + 12, _VERDE)
+            _texto(lz, str(n), 180 + 328, y, _GRIS, 1)
+    else:
+        _texto(lz, "SIN AVANCES ESTA SEMANA", 30, cy2 + 30, _GRIS, 2)
 
     # Pie: racha y actividad de hoy.
     pie = f"RACHA {d['racha']}D    HOY {d['hechos_hoy']}"

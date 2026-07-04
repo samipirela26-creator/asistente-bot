@@ -30,8 +30,10 @@ from html import escape as esc
 log = logging.getLogger("agenda.asistente")
 LIMITE_TELEGRAM = 4096  # tope de caracteres por mensaje en la API de Telegram
 
-# ---- Rutas de los archivos (estan junto a este script) ----
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ---- Rutas de los archivos ----
+# asistente.py vive en src/; config.json y tareas.json viven un nivel arriba,
+# en la raiz del repo -- de ahi el dirname() doble.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 TAREAS_PATH = os.path.join(BASE_DIR, "tareas.json")
 
@@ -578,14 +580,14 @@ def main():
         print(f"Resumen nocturno enviado a {len(destinos)} cuenta(s) "
               f"+ {len(extras)} usuario(s) opt-in.")
     elif accion == "tarjeta":
-        # Parte dominical: saludo + versículo y, acto seguido, la imagen con el
-        # progreso semanal. La compone la MÁQUINA (no la IA).
+        # Parte semanal (dia/hora que el usuario eligio con el boton
+        # "Horario de tarjeta"): saludo + versiculo y la imagen con el
+        # progreso. La compone la MAQUINA (no la IA). El timer de systemd
+        # sondea con frecuencia; db.tarjeta_pendiente_hoy() decide si de
+        # verdad toca enviar ahora, para no depender de tocar systemd cada
+        # vez que el usuario cambia su horario.
         import tarjeta
-        try:
-            png = tarjeta.generar()
-        except Exception as e:
-            log.error("No pude generar la tarjeta semanal: %s", e)
-            png = None
+        import db as _db
         saludo = [f"<b>Buenos días.</b> {fecha_legible(hoy)}."]
         try:
             import versiculos
@@ -599,25 +601,38 @@ def main():
         saludo.append("Le paso una imagen, señor, para que tenga presente su "
                       "progreso de la semana.")
         msg = "\n".join(saludo)
-        for cid in destinos:
-            enviar_mensaje(msg, token, cid)
-            if png:
-                enviar_foto(png, token, cid, caption="📊 <b>Su progreso semanal</b>")
-        # Usuarios externos opt-in: su propio saludo y su propia lámina.
-        import db as _db
-        extras = chats_opt_in(cfg, _db)
-        for d in extras:
+        enviados = 0
+        if _db.tarjeta_pendiente_hoy():
+            try:
+                png = tarjeta.generar()
+            except Exception as e:
+                log.error("No pude generar la tarjeta semanal: %s", e)
+                png = None
+            for cid in destinos:
+                enviar_mensaje(msg, token, cid)
+                if png:
+                    enviar_foto(png, token, cid, caption="📊 <b>Su progreso semanal</b>")
+            _db.marcar_tarjeta_enviada()
+            enviados = len(destinos)
+        # Usuarios externos opt-in: su propio saludo, su propio horario y su
+        # propia lámina.
+        extras_enviados = 0
+        for d in chats_opt_in(cfg, _db):
             try:
                 with _db.como_dueno(d):
+                    if not _db.tarjeta_pendiente_hoy():
+                        continue
                     png_d = tarjeta.generar(dueno=d)
+                    _db.marcar_tarjeta_enviada()
                 enviar_mensaje(msg, token, d)
                 if png_d:
                     enviar_foto(png_d, token, d,
                                 caption="📊 <b>Su progreso semanal</b>")
+                extras_enviados += 1
             except Exception as e:
                 log.warning("No pude enviar la tarjeta a %s: %s", d, e)
-        print(f"Tarjeta semanal enviada a {len(destinos)} cuenta(s) "
-              f"+ {len(extras)} usuario(s) opt-in.")
+        print(f"Tarjeta semanal enviada a {enviados} cuenta(s) "
+              f"+ {extras_enviados} usuario(s) opt-in.")
     elif accion == "recordatorios":
         texto = construir_recordatorios(tareas, hoy)
         if texto:

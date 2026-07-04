@@ -3,12 +3,14 @@
 # Dell). Crea un timer de usuario que cada día trae los respaldos del servidor
 # (Lenovo) a esta máquina, para sobrevivir a una muerte del disco del servidor.
 #
-# Uso (en el equipo receptor, p.ej. el Dell):  bash instalar-respaldo-offsite.sh
+# Uso (en el equipo receptor, p.ej. el Dell):  bash scripts/instalar-respaldo-offsite.sh
 #
 # Requisito: este equipo debe poder entrar por SSH al servidor SIN contraseña
 # (llave ya autorizada). Pruébalo antes con:
 #   ssh -o BatchMode=yes samuel@192.168.100.47 'echo ok'
 set -e
+# respaldo-offsite.sh vive junto a este script (los dos en scripts/), asi que
+# AQUI sigue siendo la carpeta de este script, no la raiz del repo.
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p ~/.config/systemd/user
 

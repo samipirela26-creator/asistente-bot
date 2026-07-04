@@ -46,7 +46,9 @@ try:
 except ImportError:
     gemini_ia = None
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# bot.py vive en src/; .bot.lock vive un nivel arriba, en la raiz del repo --
+# de ahi el dirname() doble.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 _LOCK = None  # descriptor del lock anti-doble-instancia (se conserva abierto)
 
@@ -250,6 +252,7 @@ def botones_proyectos():
 
 
 def botones_menu():
+    """Teclado inline con el menú principal (comando/botón 'menu')."""
     return [
         [{"text": "🏗 Proyectos", "callback_data": "menu:proyectos"},
          {"text": "📋 Lista", "callback_data": "menu:lista"}],
@@ -263,11 +266,37 @@ def botones_menu():
          {"text": "❓ Ayuda", "callback_data": "menu:ayuda"}],
         [{"text": "📊 Mi progreso", "callback_data": "menu:tarjeta"},
          {"text": "✏️ Mi nombre", "callback_data": "menu:nombre"}],
-        [{"text": "🌅 Buenos días/noches", "callback_data": "menu:partes"}],
+        [{"text": "🌅 Buenos días/noches", "callback_data": "menu:partes"},
+         {"text": "🕒 Horario de tarjeta", "callback_data": "menu:horario_tarjeta"}],
     ]
 
 
+_DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+_HORAS_TARJETA = ["08:00", "09:00", "12:00", "18:00", "21:00"]
+
+
+def botones_horario_dia():
+    """Teclado con los 7 días de la semana para elegir cuándo llega la tarjeta."""
+    filas = []
+    for i in range(0, 7, 2):
+        fila = [{"text": _DIAS_SEMANA[i], "callback_data": f"htarj_d:{i}"}]
+        if i + 1 < 7:
+            fila.append({"text": _DIAS_SEMANA[i + 1], "callback_data": f"htarj_d:{i + 1}"})
+        filas.append(fila)
+    return filas
+
+
+def botones_horario_hora(dia):
+    """Teclado con horas preestablecidas para el día ya elegido."""
+    filas = []
+    for i in range(0, len(_HORAS_TARJETA), 2):
+        grupo = _HORAS_TARJETA[i:i + 2]
+        filas.append([{"text": h, "callback_data": f"htarj_h:{dia}:{h}"} for h in grupo])
+    return filas
+
+
 def texto_intereses():
+    """Texto formateado con la lista de intereses guardados del dueño actual."""
     ints = db.get_intereses()
     if not ints:
         return ("🎯 No tiene intereses guardados.\n"
@@ -277,6 +306,8 @@ def texto_intereses():
 
 
 def texto_lista(tareas):
+    """Texto formateado del comando 'lista': proyectos, pendientes, eventos y
+    recordatorios del dueño actual, todo junto en un solo mensaje."""
     pend = tareas.get("pendientes", [])
     ev = tareas.get("eventos", [])
     rec = db.listar_recordatorios()
@@ -316,6 +347,8 @@ def texto_lista(tareas):
 
 
 def quitar_pendiente(tareas, objetivo):
+    """Quita y devuelve un pendiente de 'tareas' por número de lista (1-based)
+    o por coincidencia parcial de texto. None si no lo encuentra."""
     pend = tareas.get("pendientes", [])
     objetivo = objetivo.strip()
     if objetivo.isdigit():
@@ -329,6 +362,8 @@ def quitar_pendiente(tareas, objetivo):
 
 
 def quitar_evento(tareas, objetivo):
+    """Quita y devuelve un evento de 'tareas' por número de lista (1-based) o
+    por coincidencia parcial de su título. None si no lo encuentra."""
     ev = tareas.get("eventos", [])
     objetivo = objetivo.strip()
     if objetivo.isdigit():
@@ -466,7 +501,7 @@ def procesar_simple(texto, tareas, estricto=False):
         proy = m.group(1).strip(" ?!.")
         comp, sig = db.completar_fase(proy)
         if comp:
-            db.log_actividad("fase", comp["titulo"])
+            db.log_actividad("fase", comp["titulo"], categoria=proy)
             msg = f"✅ <b>Fase completada:</b> {esc(comp['titulo'])}"
             prog = db.progreso_proyecto(proy)
             if prog:
@@ -583,6 +618,232 @@ def _cuando_ok(s):
         return False
 
 
+def _accion_pendiente_evento(tipo, a, tareas):
+    """Pendientes y eventos de 'tareas'. Devuelve (lineas, hubo_cambio)."""
+    lineas = []
+    cambio = False
+    if tipo == "agregar_pendiente":
+        txt = (a.get("texto") or "").strip()
+        if txt:
+            tareas.setdefault("pendientes", []).append(txt)
+            lineas.append(f"📝 Agregado: <i>{esc(txt)}</i>")
+            cambio = True
+    elif tipo == "borrar_pendiente":
+        q = quitar_pendiente(tareas, str(a.get("objetivo", "")))
+        if q:
+            db.log_actividad("pendiente", q, categoria="Tareas sueltas")
+        lineas.append(f"✅ Listo: <i>{esc(q)}</i>" if q else "🤔 No encontré ese pendiente.")
+        cambio = bool(q)
+    elif tipo == "agregar_evento":
+        if not _fecha_ok(a.get("fecha")) or not _hora_ok(a.get("hora")):
+            lineas.append(f"🤔 No agendé <i>{esc((a.get('titulo') or '').strip())}</i>: la IA dio una fecha u hora inválida.")
+            return lineas, cambio
+        nuevo = {"fecha": a.get("fecha", ""), "titulo": (a.get("titulo") or "").strip()}
+        if a.get("hora"):
+            nuevo["hora"] = a["hora"]
+        tareas.setdefault("eventos", []).append(nuevo)
+        hora = f" · {esc(nuevo['hora'])}" if nuevo.get("hora") else ""
+        lineas.append(f"📅 Agendado: <i>{esc(nuevo['titulo'])}</i>\n      🗓 {esc(nuevo['fecha'])}{hora}")
+        cambio = True
+    elif tipo == "borrar_evento":
+        q = quitar_evento(tareas, str(a.get("objetivo", "")))
+        lineas.append(f"🗑 Evento borrado: <i>{esc(q.get('titulo',''))}</i>" if q else "🤔 No encontré ese evento.")
+        cambio = bool(q)
+    return lineas, cambio
+
+
+def _accion_recordatorio(tipo, a, tareas, grupos_vistos):
+    """Recordatorios (viven en la BD, no en 'tareas'). Devuelve (lineas, pregunta);
+    'pregunta' es un (texto, botones) para preguntar cuántas veces insistir, o None."""
+    lineas = []
+    if tipo == "agregar_recordatorio":
+        cuando = a.get("cuando", "")
+        txt = (a.get("texto") or "").strip()
+        rep = a.get("repetir") or None
+        if rep in ("null", "", "none"):
+            rep = None
+        # Intervalo de insistencia que sugiere la IA (en min). No insiste
+        # solo: el recordatorio nace avisando UNA vez y, si la IA detectó
+        # intención de insistir, se le PREGUNTA al usuario cuántas veces.
+        inter = a.get("insistir_min")
+        try:
+            inter = int(inter) if inter not in (None, "null", "", "none", 0, "0") else None
+        except (ValueError, TypeError):
+            inter = None
+        if inter and inter < 1:
+            inter = None
+        grupo = a.get("grupo")
+        if grupo in ("null", "", "none"):
+            grupo = None
+        if not _cuando_ok(cuando):
+            lineas.append(f"🤔 No creé el recordatorio <i>{esc(txt)}</i>: la IA dio una fecha/hora inválida.")
+            return lineas, None
+        # Evita ráfagas: en un plan escalonado, omite los avisos cuya hora
+        # ya pasó hace más de 5 min (se dispararían todos de golpe).
+        if grupo:
+            try:
+                cuando_dt = datetime.datetime.strptime(cuando, "%Y-%m-%dT%H:%M")
+                if (datetime.datetime.now() - cuando_dt).total_seconds() > 300:
+                    return lineas, None
+            except (ValueError, TypeError):
+                pass
+        # Nace con insistir_veces=0: avisa una sola vez salvo que el usuario
+        # elija insistir por los botones de abajo.
+        rid = db.add_recordatorio(cuando, txt, rep, insistir_min=inter,
+                                  grupo=grupo, insistir_veces=0)
+        if grupo:
+            if grupo not in grupos_vistos:
+                grupos_vistos.add(grupo)
+                lineas.append("📋 <b>Plan de avisos creado</b> (marca Hecho en cualquiera y se apagan todos):")
+            lineas.append(f"  🕐 {esc(cuando.replace('T',' · '))} — <i>{esc(txt)}</i>")
+            return lineas, None
+        extra = f"\n      🔁 se repite {esc(rep)}" if rep else ""
+        lineas.append(f"⏰ Recordatorio: <i>{esc(txt)}</i>\n      🕐 {esc(cuando.replace('T',' · '))}{extra}")
+        pregunta = None
+        if inter:
+            cada = (f"cada {inter} min" if inter < 60
+                    else f"cada {inter // 60} h")
+            botones_ins = [
+                [{"text": "1 vez", "callback_data": f"ins_set:{rid}:{inter}:1"},
+                 {"text": "3 veces", "callback_data": f"ins_set:{rid}:{inter}:3"}],
+                [{"text": "5 veces", "callback_data": f"ins_set:{rid}:{inter}:5"},
+                 {"text": "No insistir", "callback_data": f"ins_set:{rid}:{inter}:0"}],
+                [{"text": "🔥 Súper insistente",
+                  "callback_data": f"ins_set:{rid}:{inter}:-1"}],
+            ]
+            pregunta = (
+                f"🔔 ¿Cuántas veces desea que le insista con <i>{esc(txt)}</i> "
+                f"({cada}) si no responde?", botones_ins)
+        return lineas, pregunta
+    if tipo == "borrar_recordatorio":
+        q = db.borrar_recordatorio(a.get("objetivo", ""))
+        if q:
+            msg = f"✅ Recordatorio apagado: <i>{esc(q['texto'])}</i>"
+            if q.get("borrados", 0) > 1:
+                msg += f" (y sus {q['borrados']} avisos 🔕)"
+            lineas.append(msg)
+        else:
+            lineas.append("🤔 No encontré ese recordatorio.")
+        return lineas, None
+    if tipo == "listar_recordatorios":
+        rec = db.listar_recordatorios()
+        if rec:
+            lineas.append("⏰ <b>Tus recordatorios</b>\n" + "\n".join(
+                f"  • {esc(r['texto'])}\n      🕐 {esc(r['cuando'].replace('T',' · '))}" for r in rec))
+        else:
+            lineas.append("⏰ No tiene recordatorios. ✨")
+        return lineas, None
+    return lineas, None
+
+
+def _accion_proyecto(tipo, a):
+    """Proyectos y fases (viven en la BD). Devuelve la lista de lineas."""
+    lineas = []
+    if tipo == "crear_proyecto":
+        db.add_proyecto((a.get("nombre") or "").strip(), (a.get("descripcion") or "").strip())
+        lineas.append(f"🏗 Proyecto creado: <b>{esc(a.get('nombre',''))}</b>")
+    elif tipo == "agregar_fase":
+        minutos = a.get("minutos")
+        if minutos in ("null", "", "none", 0):
+            minutos = None
+        db.add_fase(a.get("proyecto", ""), (a.get("titulo") or "").strip(),
+                    (a.get("contexto") or "").strip(), minutos=minutos)
+        lineas.append(f"➕ Fase agregada a <b>{esc(a.get('proyecto',''))}</b>: <i>{esc(a.get('titulo',''))}</i>")
+    elif tipo == "completar_fase":
+        proy = a.get("proyecto", "")
+        comp, sig = db.completar_fase(proy)
+        if comp:
+            db.log_actividad("fase", comp["titulo"], categoria=proy)
+            msg = f"✅ <b>Fase completada:</b> {esc(comp['titulo'])}"
+            prog = db.progreso_proyecto(proy)
+            if prog:
+                msg += f"\n      📊 Vas {prog[0]} de {prog[1]} ✊"
+            r = db.racha()
+            if r > 1:
+                msg += f"\n      🔥 Racha: {r} días seguidos avanzando!"
+            msg += f"\n      ▶️ Sigue: <i>{esc(sig['titulo'])}</i>" if sig else "\n      🎉 <b>Proyecto terminado!</b>"
+            lineas.append(msg)
+        else:
+            lineas.append("🤔 No encontré fases pendientes en ese proyecto.")
+    elif tipo == "siguiente_fase":
+        f = db.fase_actual(a.get("proyecto", ""))
+        if f:
+            ctx = f"\n      🏷 {esc(f['contexto'])}" if f["contexto"] else ""
+            mins = f" (~{f['minutos']} min)" if f["minutos"] else ""
+            lineas.append(f"▶️ Siguiente fase de <b>{esc(a.get('proyecto',''))}</b>:\n"
+                          f"      {esc(f['titulo'])}{mins}{ctx}")
+        else:
+            lineas.append("✨ Ese proyecto no tiene fases pendientes.")
+    return lineas
+
+
+def _accion_nota_interes(tipo, a):
+    """Notas e intereses guardados (viven en la BD). Devuelve la lista de lineas."""
+    lineas = []
+    if tipo == "agregar_nota":
+        txt = (a.get("texto") or "").strip()
+        if txt:
+            db.add_nota(txt)
+            lineas.append(f"🗒 Nota guardada: <i>{esc(txt)}</i>")
+    elif tipo == "buscar_nota":
+        notas = db.buscar_notas(str(a.get("objetivo", "")))
+        if notas:
+            lineas.append("🗒 <b>Notas</b>\n" + "\n".join(
+                f"  {i}. {esc(n['texto'])}\n      📆 {n['fecha'][:10]}"
+                for i, n in enumerate(notas, 1)))
+        else:
+            lineas.append("🤔 No encontré notas con eso.")
+    elif tipo == "borrar_nota":
+        q = db.borrar_nota(a.get("objetivo", ""))
+        lineas.append(f"🗑 Nota borrada: <i>{esc(q['texto'])}</i>" if q else "🤔 No encontré esa nota.")
+    elif tipo == "agregar_interes":
+        txt = (a.get("texto") or "").strip()
+        if txt:
+            db.add_interes(txt)
+            lineas.append(f"🎯 Interes guardado: <i>{esc(txt)}</i>")
+    elif tipo == "borrar_interes":
+        q = db.borrar_interes(a.get("objetivo", ""))
+        lineas.append(f"🗑 Interes borrado: <i>{esc(q)}</i>" if q else "🤔 No encontré ese interes.")
+    elif tipo == "listar_intereses":
+        lineas.append(texto_intereses())
+    return lineas
+
+
+def _accion_lectura(tipo, a):
+    """Marcadores de lectura guardados (viven en la BD). Devuelve la lista de lineas."""
+    lineas = []
+    if tipo == "guardar_lectura":
+        db.set_lectura(a.get("nombre", "lectura"), a.get("marcador", ""))
+        lineas.append(f"📖 Anotado: <b>{esc(a.get('nombre',''))}</b> → <i>{esc(a.get('marcador',''))}</i>")
+    elif tipo == "ver_lectura":
+        lect = db.get_lecturas()
+        if lect:
+            lineas.append("📖 <b>Lecturas</b>\n" + "\n".join(
+                f"  • <b>{esc(l['nombre'])}</b>: {esc(l['marcador'])}\n      📆 {l['actualizado']}"
+                for l in lect))
+        else:
+            lineas.append("📖 No tienes lecturas registradas.")
+    return lineas
+
+
+def _accion_listar_resumen(tipo, tareas):
+    """Texto de 'listar' o 'resumen' completo. Devuelve la lista de lineas."""
+    if tipo == "listar":
+        return [texto_lista(tareas)]
+    if tipo == "resumen":
+        return [A.construir_resumen(tareas, datetime.date.today())]
+    return []
+
+
+_TIPOS_PENDIENTE_EVENTO = {"agregar_pendiente", "borrar_pendiente", "agregar_evento", "borrar_evento"}
+_TIPOS_RECORDATORIO = {"agregar_recordatorio", "borrar_recordatorio", "listar_recordatorios"}
+_TIPOS_PROYECTO = {"crear_proyecto", "agregar_fase", "completar_fase", "siguiente_fase"}
+_TIPOS_NOTA_INTERES = {"agregar_nota", "buscar_nota", "borrar_nota", "agregar_interes",
+                        "borrar_interes", "listar_intereses"}
+_TIPOS_LECTURA = {"guardar_lectura", "ver_lectura"}
+_TIPOS_LISTAR_RESUMEN = {"listar", "resumen"}
+
+
 def ejecutar_acciones(acciones, tareas):
     """Aplica las acciones de Gemini. Devuelve (lineas, hubo_cambio, preguntas).
     'preguntas' son mensajes con botones a enviar aparte (ej. preguntar cuántas
@@ -595,182 +856,23 @@ def ejecutar_acciones(acciones, tareas):
         if not isinstance(a, dict):
             continue
         tipo = a.get("tipo")
-        if tipo == "agregar_pendiente":
-            txt = (a.get("texto") or "").strip()
-            if txt:
-                tareas.setdefault("pendientes", []).append(txt)
-                lineas.append(f"📝 Agregado: <i>{esc(txt)}</i>")
-                cambio = True
-        elif tipo == "borrar_pendiente":
-            q = quitar_pendiente(tareas, str(a.get("objetivo", "")))
-            if q:
-                db.log_actividad("pendiente", q)
-            lineas.append(f"✅ Listo: <i>{esc(q)}</i>" if q else "🤔 No encontré ese pendiente.")
-            cambio = cambio or bool(q)
-        elif tipo == "agregar_evento":
-            if not _fecha_ok(a.get("fecha")) or not _hora_ok(a.get("hora")):
-                lineas.append(f"🤔 No agendé <i>{esc((a.get('titulo') or '').strip())}</i>: la IA dio una fecha u hora inválida.")
-                continue
-            nuevo = {"fecha": a.get("fecha", ""), "titulo": (a.get("titulo") or "").strip()}
-            if a.get("hora"):
-                nuevo["hora"] = a["hora"]
-            tareas.setdefault("eventos", []).append(nuevo)
-            hora = f" · {esc(nuevo['hora'])}" if nuevo.get("hora") else ""
-            lineas.append(f"📅 Agendado: <i>{esc(nuevo['titulo'])}</i>\n      🗓 {esc(nuevo['fecha'])}{hora}")
-            cambio = True
-        elif tipo == "borrar_evento":
-            q = quitar_evento(tareas, str(a.get("objetivo", "")))
-            lineas.append(f"🗑 Evento borrado: <i>{esc(q.get('titulo',''))}</i>" if q else "🤔 No encontré ese evento.")
-            cambio = cambio or bool(q)
-        elif tipo == "agregar_recordatorio":
-            cuando = a.get("cuando", "")
-            txt = (a.get("texto") or "").strip()
-            rep = a.get("repetir") or None
-            if rep in ("null", "", "none"):
-                rep = None
-            # Intervalo de insistencia que sugiere la IA (en min). No insiste
-            # solo: el recordatorio nace avisando UNA vez y, si la IA detectó
-            # intención de insistir, se le PREGUNTA al usuario cuántas veces.
-            inter = a.get("insistir_min")
-            try:
-                inter = int(inter) if inter not in (None, "null", "", "none", 0, "0") else None
-            except (ValueError, TypeError):
-                inter = None
-            if inter and inter < 1:
-                inter = None
-            grupo = a.get("grupo")
-            if grupo in ("null", "", "none"):
-                grupo = None
-            if not _cuando_ok(cuando):
-                lineas.append(f"🤔 No creé el recordatorio <i>{esc(txt)}</i>: la IA dio una fecha/hora inválida.")
-                continue
-            # Evita ráfagas: en un plan escalonado, omite los avisos cuya hora
-            # ya pasó hace más de 5 min (se dispararían todos de golpe).
-            if grupo:
-                try:
-                    cuando_dt = datetime.datetime.strptime(cuando, "%Y-%m-%dT%H:%M")
-                    if (datetime.datetime.now() - cuando_dt).total_seconds() > 300:
-                        continue
-                except (ValueError, TypeError):
-                    pass
-            # Nace con insistir_veces=0: avisa una sola vez salvo que el usuario
-            # elija insistir por los botones de abajo.
-            rid = db.add_recordatorio(cuando, txt, rep, insistir_min=inter,
-                                      grupo=grupo, insistir_veces=0)
-            if grupo:
-                if grupo not in grupos_vistos:
-                    grupos_vistos.add(grupo)
-                    lineas.append("📋 <b>Plan de avisos creado</b> (marca Hecho en cualquiera y se apagan todos):")
-                lineas.append(f"  🕐 {esc(cuando.replace('T',' · '))} — <i>{esc(txt)}</i>")
-                continue
-            extra = f"\n      🔁 se repite {esc(rep)}" if rep else ""
-            lineas.append(f"⏰ Recordatorio: <i>{esc(txt)}</i>\n      🕐 {esc(cuando.replace('T',' · '))}{extra}")
-            if inter:
-                cada = (f"cada {inter} min" if inter < 60
-                        else f"cada {inter // 60} h")
-                botones_ins = [
-                    [{"text": "1 vez", "callback_data": f"ins_set:{rid}:{inter}:1"},
-                     {"text": "3 veces", "callback_data": f"ins_set:{rid}:{inter}:3"}],
-                    [{"text": "5 veces", "callback_data": f"ins_set:{rid}:{inter}:5"},
-                     {"text": "No insistir", "callback_data": f"ins_set:{rid}:{inter}:0"}],
-                    [{"text": "🔥 Súper insistente",
-                      "callback_data": f"ins_set:{rid}:{inter}:-1"}],
-                ]
-                preguntas.append((
-                    f"🔔 ¿Cuántas veces desea que le insista con <i>{esc(txt)}</i> "
-                    f"({cada}) si no responde?", botones_ins))
-        elif tipo == "borrar_recordatorio":
-            q = db.borrar_recordatorio(a.get("objetivo", ""))
-            if q:
-                msg = f"✅ Recordatorio apagado: <i>{esc(q['texto'])}</i>"
-                if q.get("borrados", 0) > 1:
-                    msg += f" (y sus {q['borrados']} avisos 🔕)"
-                lineas.append(msg)
-            else:
-                lineas.append("🤔 No encontré ese recordatorio.")
-        elif tipo == "listar_recordatorios":
-            rec = db.listar_recordatorios()
-            if rec:
-                lineas.append("⏰ <b>Tus recordatorios</b>\n" + "\n".join(
-                    f"  • {esc(r['texto'])}\n      🕐 {esc(r['cuando'].replace('T',' · '))}" for r in rec))
-            else:
-                lineas.append("⏰ No tiene recordatorios. ✨")
-        elif tipo == "crear_proyecto":
-            db.add_proyecto((a.get("nombre") or "").strip(), (a.get("descripcion") or "").strip())
-            lineas.append(f"🏗 Proyecto creado: <b>{esc(a.get('nombre',''))}</b>")
-        elif tipo == "agregar_fase":
-            minutos = a.get("minutos")
-            if minutos in ("null", "", "none", 0):
-                minutos = None
-            db.add_fase(a.get("proyecto", ""), (a.get("titulo") or "").strip(),
-                        (a.get("contexto") or "").strip(), minutos=minutos)
-            lineas.append(f"➕ Fase agregada a <b>{esc(a.get('proyecto',''))}</b>: <i>{esc(a.get('titulo',''))}</i>")
-        elif tipo == "completar_fase":
-            proy = a.get("proyecto", "")
-            comp, sig = db.completar_fase(proy)
-            if comp:
-                db.log_actividad("fase", comp["titulo"])
-                msg = f"✅ <b>Fase completada:</b> {esc(comp['titulo'])}"
-                prog = db.progreso_proyecto(proy)
-                if prog:
-                    msg += f"\n      📊 Vas {prog[0]} de {prog[1]} ✊"
-                r = db.racha()
-                if r > 1:
-                    msg += f"\n      🔥 Racha: {r} días seguidos avanzando!"
-                msg += f"\n      ▶️ Sigue: <i>{esc(sig['titulo'])}</i>" if sig else "\n      🎉 <b>Proyecto terminado!</b>"
-                lineas.append(msg)
-            else:
-                lineas.append("🤔 No encontré fases pendientes en ese proyecto.")
-        elif tipo == "siguiente_fase":
-            f = db.fase_actual(a.get("proyecto", ""))
-            if f:
-                ctx = f"\n      🏷 {esc(f['contexto'])}" if f["contexto"] else ""
-                mins = f" (~{f['minutos']} min)" if f["minutos"] else ""
-                lineas.append(f"▶️ Siguiente fase de <b>{esc(a.get('proyecto',''))}</b>:\n"
-                              f"      {esc(f['titulo'])}{mins}{ctx}")
-            else:
-                lineas.append("✨ Ese proyecto no tiene fases pendientes.")
-        elif tipo == "listar":
-            lineas.append(texto_lista(tareas))
-        elif tipo == "resumen":
-            lineas.append(A.construir_resumen(tareas, datetime.date.today()))
-        elif tipo == "agregar_nota":
-            txt = (a.get("texto") or "").strip()
-            if txt:
-                db.add_nota(txt)
-                lineas.append(f"🗒 Nota guardada: <i>{esc(txt)}</i>")
-        elif tipo == "buscar_nota":
-            notas = db.buscar_notas(str(a.get("objetivo", "")))
-            if notas:
-                lineas.append("🗒 <b>Notas</b>\n" + "\n".join(
-                    f"  {i}. {esc(n['texto'])}\n      📆 {n['fecha'][:10]}"
-                    for i, n in enumerate(notas, 1)))
-            else:
-                lineas.append("🤔 No encontré notas con eso.")
-        elif tipo == "borrar_nota":
-            q = db.borrar_nota(a.get("objetivo", ""))
-            lineas.append(f"🗑 Nota borrada: <i>{esc(q['texto'])}</i>" if q else "🤔 No encontré esa nota.")
-        elif tipo == "agregar_interes":
-            txt = (a.get("texto") or "").strip()
-            if txt:
-                db.add_interes(txt)
-                lineas.append(f"🎯 Interes guardado: <i>{esc(txt)}</i>")
-        elif tipo == "borrar_interes":
-            q = db.borrar_interes(a.get("objetivo", ""))
-            lineas.append(f"🗑 Interes borrado: <i>{esc(q)}</i>" if q else "🤔 No encontré ese interes.")
-        elif tipo == "listar_intereses":
-            lineas.append(texto_intereses())
-        elif tipo == "guardar_lectura":
-            db.set_lectura(a.get("nombre", "lectura"), a.get("marcador", ""))
-            lineas.append(f"📖 Anotado: <b>{esc(a.get('nombre',''))}</b> → <i>{esc(a.get('marcador',''))}</i>")
-        elif tipo == "ver_lectura":
-            lect = db.get_lecturas()
-            if lect:
-                lineas.append("📖 <b>Lecturas</b>\n" + "\n".join(
-                    f"  • <b>{esc(l['nombre'])}</b>: {esc(l['marcador'])}\n      📆 {l['actualizado']}"
-                    for l in lect))
-            else:
-                lineas.append("📖 No tienes lecturas registradas.")
+        if tipo in _TIPOS_PENDIENTE_EVENTO:
+            nuevas, hubo = _accion_pendiente_evento(tipo, a, tareas)
+            lineas.extend(nuevas)
+            cambio = cambio or hubo
+        elif tipo in _TIPOS_RECORDATORIO:
+            nuevas, pregunta = _accion_recordatorio(tipo, a, tareas, grupos_vistos)
+            lineas.extend(nuevas)
+            if pregunta:
+                preguntas.append(pregunta)
+        elif tipo in _TIPOS_PROYECTO:
+            lineas.extend(_accion_proyecto(tipo, a))
+        elif tipo in _TIPOS_NOTA_INTERES:
+            lineas.extend(_accion_nota_interes(tipo, a))
+        elif tipo in _TIPOS_LECTURA:
+            lineas.extend(_accion_lectura(tipo, a))
+        elif tipo in _TIPOS_LISTAR_RESUMEN:
+            lineas.extend(_accion_listar_resumen(tipo, tareas))
     return lineas, cambio, preguntas
 
 
@@ -814,6 +916,12 @@ def sugerencia_proactiva(token, chat_ids):
 IA_FALLOS_ALERTA = 5      # fallos de IA seguidos antes de avisar
 LATIDO_MAX_S = 900        # 15 min sin hablar con Telegram = sin red/atascado
 
+# Cortes para formatear "hace cuanto" en salud_texto(): por debajo de
+# SEG_A_MIN se muestra en segundos, por debajo de MIN_A_HORA en minutos, y
+# por encima en horas.
+SEG_A_MIN = 90
+MIN_A_HORA = 5400
+
 
 def salud_servicios(ahora=None):
     """Devuelve una lista de problemas de SERVICIO (no de hardware) para que el
@@ -848,9 +956,9 @@ def salud_texto(ahora=None):
     if latido:
         seg = int(ahora - latido)
         icono = "🟢" if seg <= LATIDO_MAX_S else "🔴"
-        if seg < 90:
+        if seg < SEG_A_MIN:
             cuando = f"hace {seg} s"
-        elif seg < 5400:
+        elif seg < MIN_A_HORA:
             cuando = f"hace {seg // 60} min"
         else:
             cuando = f"hace {seg // 3600} h"
@@ -868,7 +976,7 @@ def salud_texto(ahora=None):
     act = float(db.estado_get("ultima_actividad", 0) or 0)
     if act:
         seg = int(ahora - act)
-        cuando = f"{seg // 60} min" if seg >= 90 else f"{seg} s"
+        cuando = f"{seg // 60} min" if seg >= SEG_A_MIN else f"{seg} s"
         out.append(f"  💬 Última actividad tuya: hace {cuando}")
 
     problemas = salud_servicios(ahora)
@@ -876,6 +984,42 @@ def salud_texto(ahora=None):
         out.append("  ⚠️ <b>Avisos:</b>")
         out.extend(f"     {p}" for p in problemas)
     return "\n".join(out)
+
+
+def _despachar_recordatorios_vencidos(token, cfg):
+    """Envia los recordatorios vencidos de TODOS los dueños, cada uno a su chat."""
+    # La franja de silencio difiere a la mañana: (a) las entregas cuya hora NO
+    # la fijó el usuario a propósito (posponer_madrugada, evita sorpresas de
+    # madrugada) y (b) las RE-insistencias automáticas (db.marcar_enviado).
+    silencio = _franja_silencio(cfg)
+    db.posponer_madrugada(silencio)
+    for r in db.recordatorios_vencidos():  # de todos los dueños
+        botones = [[
+            {"text": "✅ Hecho", "callback_data": f"rec_done:{r['id']}"},
+            {"text": "⏰ +30 min", "callback_data": f"rec_post:{r['id']}"},
+        ]]
+        for cid in destinos_de(r.get("dueno") or db.DUENO_PRINCIPAL, cfg):
+            A.enviar_mensaje(
+                f"⏰ <b>Permítame recordarle:</b> {esc(r['texto'])}",
+                token, cid, botones=botones)
+        db.marcar_enviado(r, silencio=silencio)
+
+
+def _revisar_salud_sistema_y_alertar(token, cfg):
+    """Salud de la maquina y de los SERVICIOS: si algo esta critico, avisa al
+    admin (max 1 vez/hora). Incluye IA caida y sin red."""
+    try:
+        problemas = sistema.alertas() + salud_servicios()
+        ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
+        if problemas and time.time() - ult > 3600:
+            msg = ("⚠️ <b>Aviso técnico de la máquina</b>\n"
+                   "Me permito señalarle lo siguiente:\n"
+                   + "\n".join(f"  {p}" for p in problemas))
+            for cid in creador(cfg):  # técnico: solo al creador
+                A.enviar_mensaje(msg, token, cid)
+            db.estado_set("ult_alerta_sistema", time.time())
+    except Exception as e:
+        log.warning("Error revisando salud de la maquina: %s", e)
 
 
 def vigilar_recordatorios(token, cfg, parar):
@@ -890,37 +1034,10 @@ def vigilar_recordatorios(token, cfg, parar):
         espera = 300  # tope: 5 min
         try:
             db.respaldo_diario()
-            # Cada recordatorio se entrega a su hora. La franja de silencio
-            # difiere a la mañana: (a) las entregas cuya hora NO la fijó el
-            # usuario a propósito (posponer_madrugada, evita sorpresas de
-            # madrugada) y (b) las RE-insistencias automáticas (db.marcar_enviado).
-            silencio = _franja_silencio(cfg)
-            db.posponer_madrugada(silencio)
-            for r in db.recordatorios_vencidos():  # de todos los dueños
-                botones = [[
-                    {"text": "✅ Hecho", "callback_data": f"rec_done:{r['id']}"},
-                    {"text": "⏰ +30 min", "callback_data": f"rec_post:{r['id']}"},
-                ]]
-                for cid in destinos_de(r.get("dueno") or db.DUENO_PRINCIPAL, cfg):
-                    A.enviar_mensaje(
-                        f"⏰ <b>Permítame recordarle:</b> {esc(r['texto'])}",
-                        token, cid, botones=botones)
-                db.marcar_enviado(r, silencio=silencio)
+            # Cada recordatorio se entrega a su hora.
+            _despachar_recordatorios_vencidos(token, cfg)
             # (sugerencia proactiva desactivada: resultaba molesta)
-            # Salud de la maquina y de los SERVICIOS: si algo esta critico,
-            # avisa al admin (max 1 vez/hora). Incluye IA caida y sin red.
-            try:
-                problemas = sistema.alertas() + salud_servicios()
-                ult = float(db.estado_get("ult_alerta_sistema", 0) or 0)
-                if problemas and time.time() - ult > 3600:
-                    msg = ("⚠️ <b>Aviso técnico de la máquina</b>\n"
-                           "Me permito señalarle lo siguiente:\n"
-                           + "\n".join(f"  {p}" for p in problemas))
-                    for cid in creador(cfg):  # técnico: solo al creador
-                        A.enviar_mensaje(msg, token, cid)
-                    db.estado_set("ult_alerta_sistema", time.time())
-            except Exception as e:
-                log.warning("Error revisando salud de la maquina: %s", e)
+            _revisar_salud_sistema_y_alertar(token, cfg)
             prox = db.proximo_recordatorio()
             if prox:
                 falta = (datetime.datetime.strptime(prox, "%Y-%m-%dT%H:%M")
@@ -1062,10 +1179,11 @@ def _clave_esperando_progreso(chat_id):
     return "esperando_progreso:" + str(chat_id)
 
 
-def _capturar_progreso(texto, token, chat_id):
-    """Si el bot pidió registrar un avance del día (botón nocturno), este mensaje
-    ES ese avance: lo guarda en la actividad y confirma. Devuelve True si cortó
-    el flujo. 'cancelar'/'nada' lo desactiva sin guardar."""
+def _capturar_progreso(texto, cfg, token, chat_id):
+    """Si el bot pidió registrar el avance del día (botón nocturno), este
+    mensaje ES ese avance -aunque mezcle varios temas en un solo mensaje-, lo
+    separa por categoría con la IA y lo guarda. Devuelve True si cortó el
+    flujo. 'cancelar'/'nada' lo desactiva sin guardar."""
     clave = _clave_esperando_progreso(chat_id)
     if db.estado_get(clave) != "1":
         return False
@@ -1074,11 +1192,35 @@ def _capturar_progreso(texto, token, chat_id):
     if not t or t.lower() in ("cancelar", "nada", "no", "olvidalo", "olvídalo"):
         A.enviar_mensaje("Como guste, señor. No he anotado nada.", token, chat_id)
         return True
-    db.log_actividad("manual", t[:200])
-    A.enviar_mensaje(
-        f"Anotado, señor: <i>{esc(t[:200])}</i>. Lo he sumado a su progreso.",
-        token, chat_id)
+    avances = _categorizar_o_generico(t, cfg)
+    for av in avances:
+        db.log_actividad("manual", av["texto"], categoria=av["categoria"])
+    if len(avances) == 1:
+        av = avances[0]
+        A.enviar_mensaje(
+            f"Anotado, señor, bajo <b>{esc(av['categoria'])}</b>: "
+            f"<i>{esc(av['texto'])}</i>.", token, chat_id)
+    else:
+        detalle = "\n".join(
+            f"  • <b>{esc(av['categoria'])}</b>: <i>{esc(av['texto'])}</i>"
+            for av in avances)
+        A.enviar_mensaje(
+            f"He anotado {len(avances)} avances, señor:\n{detalle}", token, chat_id)
     return True
+
+
+def _categorizar_o_generico(texto, cfg):
+    """Pide a la IA separar 'texto' en avances con categoria; si no hay clave
+    o la IA falla, cae a un unico avance sin categorizar (nunca se pierde el
+    registro)."""
+    api_key = (cfg or {}).get("gemini_api_key", "").strip()
+    if gemini_ia and api_key:
+        try:
+            previas = db.categorias_recientes()
+            return gemini_ia.categorizar_avances(texto, api_key, previas, cfg=cfg)
+        except Exception as e:
+            log.warning("Categorizar avances con IA fallo, uso el modo simple: %s", e)
+    return [{"texto": texto[:200], "categoria": "General"}]
 
 
 # ------------------------------------------------------------- notas de voz
@@ -1136,7 +1278,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
         return
 
     # 0.05) Captura de avance del dia (tras la pregunta nocturna).
-    if _capturar_progreso(texto, token, chat_id):
+    if _capturar_progreso(texto, cfg, token, chat_id):
         return
 
     # 0.07) Una sola vez, ofrece el parte automatico de la manana y la noche.
@@ -1396,6 +1538,13 @@ def manejar_boton(cb, cfg, token, chat_id):
                          "callback_data": "partes:si"},
                         {"text": "No, gracias", "callback_data": "partes:no"},
                     ]])
+            elif rid == "horario_tarjeta":
+                dia, hora = db.get_horario_tarjeta()
+                A.enviar_mensaje(
+                    f"🕒 Hoy le llega la tarjeta de progreso los "
+                    f"<b>{_DIAS_SEMANA[dia]}</b> a las <b>{hora}</b>. "
+                    "¿Qué día prefiere?",
+                    token, chat_id, botones=botones_horario_dia())
             elif rid == "sugerencia":
                 manejar_mensaje(
                     "No tengo nada que hacer ahora, sugiereme algo concreto "
@@ -1442,7 +1591,7 @@ def manejar_boton(cb, cfg, token, chat_id):
         elif accion == "proy_done":
             comp, sig = db.completar_fase(rid)
             if comp:
-                db.log_actividad("fase", comp["titulo"])
+                db.log_actividad("fase", comp["titulo"], categoria=rid)
                 aviso = f"✅ <b>Fase completada:</b> {esc(comp['titulo'])}"
                 prog = db.progreso_proyecto(rid)
                 if prog:
@@ -1524,6 +1673,18 @@ def manejar_boton(cb, cfg, token, chat_id):
                          f"vez(ces) más, cada {cada}, si no marca Hecho.")
             else:
                 aviso = "👍 De acuerdo, le avisaré una sola vez."
+        elif accion == "htarj_d":
+            dia = int(rid)
+            aviso = (f"Muy bien, <b>{_DIAS_SEMANA[dia]}</b>. ¿A qué hora le "
+                     "llega la tarjeta?")
+            botones = botones_horario_hora(dia)
+        elif accion == "htarj_h":
+            # rid trae "dia:HH:MM".
+            dia_s, hora = rid.split(":", 1)
+            dia = int(dia_s)
+            db.set_horario_tarjeta(dia, hora)
+            aviso = (f"🕒 Listo, señor. Le enviaré su tarjeta de progreso los "
+                      f"<b>{_DIAS_SEMANA[dia]}</b> a las <b>{hora}</b>.")
     except Exception as e:
         log.warning("Error procesando boton: %s", e)
         aviso = "🤔 No pude procesar el boton."

@@ -4,7 +4,8 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 import bot  # noqa: E402
 import db  # noqa: E402
@@ -87,21 +88,24 @@ class CapturaProgresoTest(unittest.TestCase):
         os.unlink(self.ruta)
 
     def test_sin_flag_no_intercepta(self):
-        self.assertFalse(bot._capturar_progreso("hola", "T", 1))
+        self.assertFalse(bot._capturar_progreso("hola", {}, "T", 1))
 
     def test_guarda_avance(self):
+        # Sin gemini_api_key en cfg: cae al modo simple (un unico avance,
+        # categoria generica), igual que antes de tener categorizacion por IA.
         db.estado_set(bot._clave_esperando_progreso(1), "1")
-        corto = bot._capturar_progreso("Ordené el garaje", "T", 1)
+        corto = bot._capturar_progreso("Ordené el garaje", {}, "T", 1)
         self.assertTrue(corto)
         acts = db.actividad_de()
         self.assertEqual(len(acts), 1)
         self.assertEqual(acts[0]["texto"], "Ordené el garaje")
+        self.assertEqual(acts[0]["categoria"], "General")
         # El flag queda desactivado tras capturar.
-        self.assertFalse(bot._capturar_progreso("otra cosa", "T", 1))
+        self.assertFalse(bot._capturar_progreso("otra cosa", {}, "T", 1))
 
     def test_cancelar_no_guarda(self):
         db.estado_set(bot._clave_esperando_progreso(1), "1")
-        self.assertTrue(bot._capturar_progreso("nada", "T", 1))
+        self.assertTrue(bot._capturar_progreso("nada", {}, "T", 1))
         self.assertEqual(db.actividad_de(), [])
 
 
