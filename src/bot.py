@@ -1272,8 +1272,10 @@ def manejar_voz(msg, cfg, token, chat_id):
             "atiendo enseguida.", token, chat_id)
         return
 
-    # Eco discreto de lo entendido y luego se procesa como texto normal.
-    A.enviar_mensaje(f"🎙️ <i>{esc(texto[:300])}</i>", token, chat_id)
+    # Eco de lo entendido (completo, no recortado: si se corta a mitad de
+    # frase parece que Larry no escucho todo el audio, aunque procese el
+    # texto entero de todas formas) y luego se procesa como texto normal.
+    A.enviar_mensaje(f"🎙️ <i>{esc(texto)}</i>", token, chat_id)
     manejar_mensaje(texto, cfg, token, chat_id)
 
 

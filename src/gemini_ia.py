@@ -198,7 +198,10 @@ def transcribir(audio_bytes, mime="audio/ogg", api_key=None):
         }],
         "generationConfig": {
             "temperature": 0.0,
-            "maxOutputTokens": 1024,
+            # Margen generoso: un audio de varios minutos puede transcribirse
+            # a mas de 1024 tokens; si se corta aqui, parece que Larry no
+            # escucho todo el mensaje aunque el modelo si lo haya recibido.
+            "maxOutputTokens": 4096,
             "thinkingConfig": {"thinkingBudget": 0},
         },
     }
