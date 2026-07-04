@@ -777,13 +777,22 @@ def _accion_proyecto(tipo, a):
     return lineas
 
 
-def _accion_nota_interes(tipo, a):
+def _accion_nota_interes(tipo, a, cfg=None):
     """Notas e intereses guardados (viven en la BD). Devuelve la lista de lineas."""
     lineas = []
     if tipo == "agregar_nota":
         txt = (a.get("texto") or "").strip()
         if txt:
             db.add_nota(txt)
+            # Deteccion oportunista: si la nota es larga (varias frases, como
+            # el relato de un dia de trabajo) probablemente sea un avance que
+            # el usuario conto sin pasar por el boton nocturno. La
+            # categorizamos igual para que cuente en la tarjeta semanal. Las
+            # notas cortas (recordatorios sueltos) no pasan este umbral, para
+            # no ensuciar las estadisticas con ruido.
+            if len(txt) >= 60:
+                for av in _categorizar_o_generico(txt, cfg):
+                    db.log_actividad("manual", av["texto"], categoria=av["categoria"])
             lineas.append(f"🗒 Nota guardada: <i>{esc(txt)}</i>")
     elif tipo == "buscar_nota":
         notas = db.buscar_notas(str(a.get("objetivo", "")))
@@ -844,10 +853,11 @@ _TIPOS_LECTURA = {"guardar_lectura", "ver_lectura"}
 _TIPOS_LISTAR_RESUMEN = {"listar", "resumen"}
 
 
-def ejecutar_acciones(acciones, tareas):
+def ejecutar_acciones(acciones, tareas, cfg=None):
     """Aplica las acciones de Gemini. Devuelve (lineas, hubo_cambio, preguntas).
     'preguntas' son mensajes con botones a enviar aparte (ej. preguntar cuántas
-    veces insistir un recordatorio)."""
+    veces insistir un recordatorio). 'cfg' se pasa a las acciones que puedan
+    necesitar categorizar avances con IA (ver _accion_nota_interes)."""
     lineas = []
     cambio = False
     preguntas = []
@@ -868,7 +878,7 @@ def ejecutar_acciones(acciones, tareas):
         elif tipo in _TIPOS_PROYECTO:
             lineas.extend(_accion_proyecto(tipo, a))
         elif tipo in _TIPOS_NOTA_INTERES:
-            lineas.extend(_accion_nota_interes(tipo, a))
+            lineas.extend(_accion_nota_interes(tipo, a, cfg))
         elif tipo in _TIPOS_LECTURA:
             lineas.extend(_accion_lectura(tipo, a))
         elif tipo in _TIPOS_LISTAR_RESUMEN:
@@ -1446,7 +1456,7 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
                 trato=db.tratamiento())
             db.metrica_observar("ia", (time.time() - _t0) * 1000)
             db.estado_set("ia_fallos_seguidos", 0)  # respondió: cadena rota
-            lineas, cambio, preguntas = ejecutar_acciones(acciones, tareas)
+            lineas, cambio, preguntas = ejecutar_acciones(acciones, tareas, cfg)
             respuesta = frase + (("\n\n" + "\n".join(lineas)) if lineas else "")
             if cambio:
                 db.guardar_tareas(tareas)
