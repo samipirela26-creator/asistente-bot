@@ -1,9 +1,0 @@
-[Unit]
-Description=Reporte diario de las apps (5:00 y 17:00)
-
-[Timer]
-OnCalendar=*-*-* 05,17:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
