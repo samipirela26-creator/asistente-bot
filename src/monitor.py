@@ -136,6 +136,28 @@ def _chat_ids(cfg):
     return ids
 
 
+def _bot(cfg, token_larry):
+    """Bot y destinos para los avisos del servidor.
+
+    Usa el bot dedicado (`monitor_bot_token` + `monitor_chat_id(s)` en
+    config.json) si está configurado; si no, cae al bot de Larry. Así todo el
+    'cuidado del servidor' sale por el bot dedicado sin mezclarse con el
+    asistente personal.
+    """
+    token = (cfg.get("monitor_bot_token") or "").strip() or token_larry
+    chats = []
+    for c in cfg.get("monitor_chat_ids", []) or []:
+        c = str(c).strip()
+        if c and not c.startswith("PEGA_") and c not in chats:
+            chats.append(c)
+    uno = str(cfg.get("monitor_chat_id", "")).strip()
+    if uno and not uno.startswith("PEGA_") and uno not in chats:
+        chats.append(uno)
+    if not chats:  # sin bot dedicado configurado: usar las cuentas de Larry
+        chats = _chat_ids(cfg)
+    return token, chats
+
+
 def _avisar(destinos, token, msg):
     for cid in destinos:
         try:
@@ -147,8 +169,8 @@ def _avisar(destinos, token, msg):
 def reporte():
     """Manda el reporte completo a las cuentas de Samuel (timer 5am/5pm)."""
     db.init_db()
-    cfg, token, _ = A.cargar_config()
-    destinos = _chat_ids(cfg)
+    cfg, token_larry, _ = A.cargar_config()
+    token, destinos = _bot(cfg, token_larry)
     if not token or not destinos:
         log.error("Falta token o chat_id; no puedo enviar el reporte.")
         return
@@ -159,8 +181,8 @@ def reporte():
 def vigilar():
     """Avisa (una sola vez) si una app se cayo, y de nuevo cuando se recupera."""
     db.init_db()
-    cfg, token, _ = A.cargar_config()
-    destinos = _chat_ids(cfg)
+    cfg, token_larry, _ = A.cargar_config()
+    token, destinos = _bot(cfg, token_larry)
     if not token or not destinos:
         log.error("Falta token o chat_id; no puedo avisar de caidas.")
         return
