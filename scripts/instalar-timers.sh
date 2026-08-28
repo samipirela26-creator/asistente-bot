@@ -76,11 +76,33 @@ WorkingDirectory=$AQUI
 ExecStart=/usr/bin/python3 $AQUI/src/chequear_salud.py
 EOF
 
+# --- Reporte diario de las apps (5:00 y 17:00) ---
+cat > ~/.config/systemd/user/agenda-monitor.service <<EOF
+[Unit]
+Description=Reporte diario de las apps de Samuel
+
+[Service]
+Type=oneshot
+WorkingDirectory=$AQUI
+ExecStart=/usr/bin/python3 $AQUI/src/monitor.py reporte
+EOF
+
+# --- Vigilancia de caidas de las apps (cada 15 min) ---
+cat > ~/.config/systemd/user/agenda-vigilar.service <<EOF
+[Unit]
+Description=Vigilancia de caidas de las apps de Samuel
+
+[Service]
+Type=oneshot
+WorkingDirectory=$AQUI
+ExecStart=/usr/bin/python3 $AQUI/src/monitor.py vigilar
+EOF
+
 # Los timers no llevan rutas; se copian tal cual desde systemd/.
-cp "$AQUI"/systemd/agenda-resumen.timer "$AQUI"/systemd/agenda-noche.timer "$AQUI"/systemd/agenda-tarjeta.timer "$AQUI"/systemd/agenda-salud.timer ~/.config/systemd/user/
+cp "$AQUI"/systemd/agenda-resumen.timer "$AQUI"/systemd/agenda-noche.timer "$AQUI"/systemd/agenda-tarjeta.timer "$AQUI"/systemd/agenda-salud.timer "$AQUI"/systemd/agenda-monitor.timer "$AQUI"/systemd/agenda-vigilar.timer ~/.config/systemd/user/
 
 systemctl --user daemon-reload
-systemctl --user enable --now agenda-bot.service agenda-resumen.timer agenda-noche.timer agenda-tarjeta.timer agenda-salud.timer
+systemctl --user enable --now agenda-bot.service agenda-resumen.timer agenda-noche.timer agenda-tarjeta.timer agenda-salud.timer agenda-monitor.timer agenda-vigilar.timer
 systemctl --user restart agenda-bot.service
 echo "Listo. El bot corre desde: $AQUI"
-systemctl --user list-timers agenda-resumen.timer agenda-noche.timer agenda-tarjeta.timer agenda-salud.timer --no-pager
+systemctl --user list-timers agenda-resumen.timer agenda-noche.timer agenda-tarjeta.timer agenda-salud.timer agenda-monitor.timer agenda-vigilar.timer --no-pager

@@ -40,6 +40,7 @@ import db
 import fechas
 import busqueda
 import sistema
+import monitor
 
 try:
     import gemini_ia
@@ -1319,6 +1320,17 @@ def manejar_mensaje(texto, cfg, token, chat_id, prefijo=""):
         # usuarios externos; expone RAM, disco, temperatura, latido del bot...).
         if es_admin(chat_id, cfg):
             A.enviar_mensaje(sistema.estado_texto() + "\n\n" + salud_texto(),
+                             token, chat_id)
+        else:
+            A.enviar_mensaje("Ese comando está reservado al administrador.",
+                             token, chat_id)
+        return
+    if low in ("servidor", "/servidor", "apps", "/apps", "estado apps",
+               "estado de las apps", "/estadoapps") or \
+            re.search(r"(como|cómo)\s+est[aá]n?\s+(las\s+)?apps", low):
+        # Estado del servidor + las 4 apps de Samuel: SOLO el administrador.
+        if es_admin(chat_id, cfg):
+            A.enviar_mensaje(sistema.estado_texto() + "\n\n" + monitor.texto_apps(),
                              token, chat_id)
         else:
             A.enviar_mensaje("Ese comando está reservado al administrador.",
